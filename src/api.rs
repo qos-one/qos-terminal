@@ -240,8 +240,35 @@ mod http {
     pub fn base() -> String {
         std::env::var("BOT_API").unwrap_or_else(|_| "http://127.0.0.1:8000".into())
     }
+    /// Desktop app: one user, so the operator token is kept in this process.
     pub static OP_TOKEN: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
-    pub fn token() -> String { OP_TOKEN.lock().map(|t| t.clone()).unwrap_or_default() }
+    /// Web Terminal (QOS_PUBLIC_TERMINAL=1): one server serves many browsers, so the token lives in each browser's
+    /// HttpOnly cookie and is read per request; the process-wide token is never used (it would hand one operator's
+    /// session to every visitor).
+    pub const COOKIE: &str = "qos_op";
+    pub fn web_mode() -> bool { std::env::var("QOS_PUBLIC_TERMINAL").map(|v| v == "1").unwrap_or(false) }
+    fn cookie_token() -> Option<String> {
+        let ctx = dioxus::fullstack::FullstackContext::current()?;
+        let parts = ctx.parts_mut();
+        let raw = parts.headers.get(reqwest::header::COOKIE)?.to_str().ok()?.to_string();
+        crate::calc::cookie_value(&raw, COOKIE)
+    }
+    pub fn token() -> String {
+        if web_mode() { return cookie_token().unwrap_or_default(); }
+        OP_TOKEN.lock().map(|t| t.clone()).unwrap_or_default()
+    }
+    /// After sign-in / sign-out: the browser cookie (web) or the process token (desktop)
+    pub fn set_token(tok: &str) {
+        if web_mode() {
+            if let Some(ctx) = dioxus::fullstack::FullstackContext::current() {
+                if let Ok(v) = reqwest::header::HeaderValue::from_str(&crate::calc::op_cookie(COOKIE, tok)) {
+                    ctx.add_response_header(reqwest::header::SET_COOKIE, v);
+                }
+            }
+        } else if let Ok(mut t) = OP_TOKEN.lock() {
+            *t = tok.to_string();
+        }
+    }
     pub fn client() -> Result<reqwest::Client, ServerFnError> {
         let mut h = reqwest::header::HeaderMap::new();
         if let Ok(v) = reqwest::header::HeaderValue::from_str(&token()) { h.insert("x-operator-token", v); }
@@ -301,7 +328,13 @@ mod http {
 #[cfg(not(feature = "demo"))]
 #[get("/api/ws_url")]
 pub async fn get_ws_url() -> Result<String, ServerFnError> {
-    Ok(crate::calc::ws_url_from(&http::base()))
+    // web Terminal behind a reverse proxy: QOS_WS_URL=/ws (same origin, the browser sends the operator cookie)
+    if let Ok(u) = std::env::var("QOS_WS_URL") { if !u.trim().is_empty() { return Ok(u.trim().to_string()); } }
+    // desktop: a browser WebSocket cannot send headers, so the operator token goes in the address (needed when the API
+    // runs with QOS_PUBLIC_TERMINAL=1; ignored otherwise)
+    let tok = http::token();
+    let u = crate::calc::ws_url_from(&http::base());
+    Ok(if tok.is_empty() || http::web_mode() { u } else { format!("{u}?op_token={}", http::enc(&tok)) })
 }
 
 #[cfg(not(feature = "demo"))]
@@ -313,7 +346,7 @@ pub async fn get_markets() -> Result<Vec<Market>, ServerFnError> {
 }
 
 #[cfg(not(feature = "demo"))]
-#[get("/api/instruments")]
+#[get("/api/instruments?market&q")]
 pub async fn get_instruments(market: String, q: String) -> Result<Vec<Instrument>, ServerFnError> {
     #[derive(Deserialize)] struct R { instruments: Vec<Instrument> }
     let r: R = http::get(&format!("/instruments?market={}&q={}&limit=300", market, http::enc(&q))).await?;
@@ -371,7 +404,7 @@ impl<'de> Deserialize<'de> for BarsResp {
 }
 
 #[cfg(not(feature = "demo"))]
-#[get("/api/bars")]
+#[get("/api/bars?key&bar_size&duration")]
 pub async fn get_bars(key: String, bar_size: String, duration: String) -> Result<BarsResp, ServerFnError> {
     http::get(&format!("/bars?key={}&bar_size={}&duration={}", http::enc(&key), http::enc(&bar_size), http::enc(&duration))).await
 }
@@ -421,7 +454,7 @@ pub async fn set_mode(mode: String) -> Result<String, ServerFnError> {
 }
 
 #[cfg(not(feature = "demo"))]
-#[get("/api/heatmap")]
+#[get("/api/heatmap?group")]
 pub async fn get_heatmap(group: String) -> Result<Heatmap, ServerFnError> {
     http::get_slow(&format!("/heatmap?group={group}")).await
 }
@@ -560,7 +593,7 @@ pub async fn resume_trading() -> Result<bool, ServerFnError> {
 }
 
 #[cfg(not(feature = "demo"))]
-#[get("/api/audit")]
+#[get("/api/audit?limit")]
 pub async fn get_audit(limit: i64) -> Result<Vec<AuditItem>, ServerFnError> {
     #[derive(Deserialize)] struct R { items: Vec<AuditItem> }
     let r: R = http::get(&format!("/audit?limit={limit}")).await?;
@@ -630,7 +663,7 @@ pub struct Stats {
 }
 
 #[cfg(not(feature = "demo"))]
-#[get("/api/history/trades")]
+#[get("/api/history/trades?range&key&source&account&tz")]
 pub async fn get_trades(range: String, key: String, source: String, account: String, tz: String) -> Result<Vec<Trade>, ServerFnError> {
     #[derive(Deserialize)] struct R { trades: Vec<Trade> }
     let mut q = format!("/history/trades?range={range}&limit=500&account={}{}", http::enc(&account), http::tz_q(&tz));
@@ -641,7 +674,7 @@ pub async fn get_trades(range: String, key: String, source: String, account: Str
 }
 
 #[cfg(not(feature = "demo"))]
-#[get("/api/history/equity")]
+#[get("/api/history/equity?range&account&tz")]
 pub async fn get_equity(range: String, account: String, tz: String) -> Result<Vec<EquityPoint>, ServerFnError> {
     #[derive(Deserialize)] struct R { points: Vec<EquityPoint>, #[serde(default)] partial: Option<bool> }
     let mut r: R = http::get(&format!("/history/equity?range={range}&account={}{}", http::enc(&account), http::tz_q(&tz))).await?;
@@ -651,7 +684,7 @@ pub async fn get_equity(range: String, account: String, tz: String) -> Result<Ve
 }
 
 #[cfg(not(feature = "demo"))]
-#[get("/api/history/stats")]
+#[get("/api/history/stats?range&account&source&tz")]
 pub async fn get_stats(range: String, account: String, source: String, tz: String) -> Result<Stats, ServerFnError> {
     http::get(&format!("/history/stats?range={range}&account={}&source={}{}", http::enc(&account), http::enc(&source), http::tz_q(&tz))).await
 }
@@ -666,7 +699,7 @@ pub async fn set_journal(first_exec: String, note: String, tags: String, rating:
 }
 
 #[cfg(not(feature = "demo"))]
-#[get("/api/history/export")]
+#[get("/api/history/export?what&range&account&tz")]
 pub async fn get_export(what: String, range: String, account: String, tz: String) -> Result<String, ServerFnError> {
     let r = http::client()?.get(format!("{}/history/export?what={what}&range={range}&account={}{}", http::base(), http::enc(&account), http::tz_q(&tz))).send().await
         .map_err(|e| ServerFnError::new(format!("bot API not responding: {e}")))?;
@@ -802,13 +835,13 @@ pub async fn delete_alert(id: String) -> Result<bool, ServerFnError> {
     Ok(true)
 }
 #[cfg(not(feature = "demo"))]
-#[get("/api/news")]
+#[get("/api/news?key")]
 pub async fn get_news(key: String) -> Result<Vec<NewsItem>, ServerFnError> {
     #[derive(Deserialize)] struct R { #[serde(default)] items: Vec<NewsItem> }
     Ok(http::get::<R>(&format!("/news?key={}&limit=25", key)).await?.items)
 }
 #[cfg(not(feature = "demo"))]
-#[get("/api/news/article")]
+#[get("/api/news/article?provider&article_id")]
 pub async fn get_article(provider: String, article_id: String) -> Result<String, ServerFnError> {
     #[derive(Deserialize)] struct R { #[serde(default)] text: String }
     Ok(http::get::<R>(&format!("/news/article?provider={}&article_id={}", provider, article_id)).await?.text)
@@ -886,21 +919,21 @@ pub async fn op_status() -> Result<OpStatus, ServerFnError> { http::get("/operat
 #[post("/api/op/login")]
 pub async fn op_login(id: String, pin: String) -> Result<Operator, ServerFnError> {
     let r: OpLoginResult = http::send(reqwest::Method::POST, "/operators/login", &serde_json::json!({"id": id, "pin": pin})).await?;
-    if let Ok(mut t) = http::OP_TOKEN.lock() { *t = r.token; }
+    http::set_token(&r.token);
     Ok(r.operator)
 }
 #[cfg(not(feature = "demo"))]
 #[post("/api/op/bootstrap")]
 pub async fn op_bootstrap(name: String, pin: String) -> Result<Operator, ServerFnError> {
     let r: OpLoginResult = http::send(reqwest::Method::POST, "/operators/bootstrap", &serde_json::json!({"name": name, "role": "admin", "pin": pin})).await?;
-    if let Ok(mut t) = http::OP_TOKEN.lock() { *t = r.token; }
+    http::set_token(&r.token);
     Ok(r.operator)
 }
 #[cfg(not(feature = "demo"))]
 #[post("/api/op/logout")]
 pub async fn op_logout() -> Result<bool, ServerFnError> {
     let _: Result<serde_json::Value, _> = http::send(reqwest::Method::POST, "/operators/logout", &serde_json::json!({})).await;
-    if let Ok(mut t) = http::OP_TOKEN.lock() { t.clear(); }
+    http::set_token("");
     Ok(true)
 }
 #[cfg(not(feature = "demo"))]
@@ -1019,7 +1052,7 @@ pub async fn get_bt_reports() -> Result<Vec<BtReport>, ServerFnError> {
 
 /// Full report as JSON text (structure varies by kind — the UI reads it as serde_json::Value)
 #[cfg(not(feature = "demo"))]
-#[get("/api/backtests/report")]
+#[get("/api/backtests/report?kind&file")]
 pub async fn get_bt_report(kind: String, file: String) -> Result<String, ServerFnError> {
     let v: serde_json::Value = http::get(&format!("/backtests/{}/{}", http::enc(&kind), http::enc(&file))).await?;
     Ok(v.to_string())
@@ -1098,7 +1131,7 @@ pub async fn node_action(id: String, action: String) -> Result<String, ServerFnE
 }
 
 #[cfg(not(feature = "demo"))]
-#[get("/api/nodes/log")]
+#[get("/api/nodes/log?id&level")]
 pub async fn get_node_log(id: String, level: String) -> Result<Vec<String>, ServerFnError> {
     #[derive(Deserialize)] struct R { lines: Vec<String> }
     Ok(http::get::<R>(&format!("/nodes/{}/log?lines=400&level={}", http::enc(&id), http::enc(&level))).await?.lines)
@@ -1106,7 +1139,7 @@ pub async fn get_node_log(id: String, level: String) -> Result<Vec<String>, Serv
 
 /// latest events from Nautilus nodes (JSON: {"events": [...], "status": {...}})
 #[cfg(not(feature = "demo"))]
-#[get("/api/events")]
+#[get("/api/events?node&types")]
 pub async fn get_node_events(node: String, types: String) -> Result<String, ServerFnError> {
     let v: serde_json::Value = http::get(&format!("/events?limit=200&node={}&types={}", http::enc(&node), http::enc(&types))).await?;
     Ok(v.to_string())
@@ -1146,7 +1179,7 @@ pub async fn run_strategy_job(file: String, kind: String, opts: String) -> Resul
 }
 
 #[cfg(not(feature = "demo"))]
-#[get("/api/strategies/job")]
+#[get("/api/strategies/job?id")]
 pub async fn get_strategy_job(id: String) -> Result<String, ServerFnError> {
     let v: serde_json::Value = http::get(&format!("/strategies/jobs/{}", http::enc(&id))).await?;
     Ok(v.to_string())
@@ -1160,7 +1193,7 @@ pub async fn cancel_strategy_job(id: String) -> Result<bool, ServerFnError> {
 }
 
 #[cfg(not(feature = "demo"))]
-#[get("/api/strategies/deploy_check")]
+#[get("/api/strategies/deploy_check?file")]
 pub async fn get_deploy_check(file: String) -> Result<Vec<String>, ServerFnError> {
     #[derive(Deserialize)] struct R { warnings: Vec<String> }
     Ok(http::get::<R>(&format!("/strategies/{}/deploy_check", http::enc(&file))).await?.warnings)
@@ -1300,7 +1333,7 @@ pub async fn get_store() -> Result<String, ServerFnError> {
 }
 
 #[cfg(not(feature = "demo"))]
-#[get("/api/cloud/store/detail")]
+#[get("/api/cloud/store/detail?slug")]
 pub async fn get_store_detail(slug: String) -> Result<String, ServerFnError> {
     let v: serde_json::Value = http::send_timeout(reqwest::Method::GET, &format!("/cloud/store/{}", http::enc(&slug)), &serde_json::json!({}), 30).await?;
     Ok(v.to_string())
@@ -1330,7 +1363,7 @@ pub async fn billing_action(what: String, arg: String) -> Result<String, ServerF
 }
 
 #[cfg(not(feature = "demo"))]
-#[get("/api/live/readiness")]
+#[get("/api/live/readiness?node")]
 pub async fn get_live_readiness(node: String) -> Result<String, ServerFnError> {
     let v: serde_json::Value = http::get(&format!("/live/readiness?node={}", http::enc(&node))).await?;
     Ok(v.to_string())
@@ -1394,7 +1427,7 @@ pub struct SoakResp {
 pub async fn get_soak() -> Result<SoakResp, ServerFnError> { http::get("/soak").await }
 
 #[cfg(not(feature = "demo"))]
-#[get("/api/soak/detail")]
+#[get("/api/soak/detail?id")]
 pub async fn get_soak_detail(id: String) -> Result<SoakNode, ServerFnError> {
     http::get(&format!("/soak/{}", http::enc(&id))).await
 }
@@ -1433,7 +1466,7 @@ pub struct NodeSummary {
 }
 
 #[cfg(not(feature = "demo"))]
-#[get("/api/nodes/summary")]
+#[get("/api/nodes/summary?id&range&tz")]
 pub async fn get_node_summary(id: String, range: String, tz: String) -> Result<NodeSummary, ServerFnError> {
     http::get(&format!("/nodes/{}/summary?range={}{}", http::enc(&id), http::enc(&range), http::tz_q(&tz))).await
 }

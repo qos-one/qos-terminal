@@ -1,0 +1,62 @@
+name: Web Terminal
+
+# Builds the browser version of the Terminal (WASM client + Linux server) for the engine server.
+# A tag v* or web-v* also publishes a GitHub Release with the files, which deploy/install.sh (engine repo) downloads.
+# Without a tag (Run workflow): only the artifact "qos-terminal-web", for deploy/deploy-terminal.sh.
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*", "web-v*"]
+
+permissions:
+  contents: write          # create the release on tag pushes
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  bundle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: web-bundle
+      - uses: cargo-bins/cargo-binstall@main
+      - name: Dioxus CLI (same minor version as Cargo.lock)
+        run: |
+          V=$(awk '/^name = "dioxus"$/{getline; gsub(/version = |"/,""); print; exit}' Cargo.lock)
+          echo "dioxus $V"
+          cargo binstall -y --force "dioxus-cli@$V"
+          dx --version
+      - name: Bundle (web client + server)
+        run: dx bundle --platform web --release 2>&1 | tail -60
+      - name: Collect server + public/
+        run: |
+          OUT=$(find target/dx -type d -path "*release/web" | head -1)
+          echo "bundle folder: $OUT"; ls -la "$OUT"
+          BIN=$(find "$OUT" -maxdepth 1 -type f -perm -u+x | head -1)
+          [ -n "$BIN" ] && [ -d "$OUT/public" ] || { echo "::error::expected an executable and public/ in $OUT"; find target/dx -maxdepth 5 | head -50; exit 1; }
+          mkdir -p dist && cp "$BIN" dist/server && cp -r "$OUT/public" dist/public
+          file dist/server
+          tar czf qos-terminal-web.tgz -C dist .
+          sha256sum qos-terminal-web.tgz | tee qos-terminal-web.sha256
+      - uses: actions/upload-artifact@v7
+        with:
+          name: qos-terminal-web
+          path: |
+            qos-terminal-web.tgz
+            qos-terminal-web.sha256
+          retention-days: 30
+      - name: Release (tag pushes only)
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" qos-terminal-web.tgz qos-terminal-web.sha256 \
+            --title "Web Terminal $GITHUB_REF_NAME" \
+            --notes "Browser version of the QOS Terminal (WASM client + Linux x86_64 server). Install with deploy/install.sh from the engine repo (QOS_TERMINAL_DOMAIN=...), see docs/SELF_HOSTING.md. SHA-256 in qos-terminal-web.sha256."

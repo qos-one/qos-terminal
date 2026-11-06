@@ -65,3 +65,10 @@ fn main() {
 pub async fn sleep_ms(ms: u64) {
     tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
 }
+
+/// sleep for polling loops in the browser build (web Terminal): a JS timer, no extra crate
+#[cfg(all(feature = "web", not(any(feature = "desktop", feature = "mobile"))))]
+pub async fn sleep_ms(ms: u64) {
+    let mut ev = dioxus::document::eval(&format!("await new Promise(r => setTimeout(r, {ms})); dioxus.send(true);"));
+    let _ = ev.recv::<bool>().await;
+}

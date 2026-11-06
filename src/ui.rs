@@ -151,7 +151,7 @@ pub const SIDE_MIN: f64 = 200.0;
 pub const SIDE_MAX: f64 = 560.0;
 
 pub fn now_hms() -> String {
-    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0) % 86400;
+    let secs = crate::calc::now_secs().map(|s| s as u64).unwrap_or(0) % 86400;     // never std::time: it panics in the browser
     format!("{:02}:{:02}:{:02}", secs / 3600, (secs % 3600) / 60, secs % 60)
 }
 
@@ -348,16 +348,19 @@ pub fn Header() -> Element {
 
     rsx! {
         header { class: "hdr",
-            div { class: "brand", title: "QOS — Quant Operating System",
-                img { class: "logo-img", src: LOGO, alt: "QOS" }
+            // left: shrinks and is clipped when the window is narrow (never slides under the controls on the right)
+            div { class: "hdr-left",
+                div { class: "brand", title: "QOS — Quant Operating System",
+                    img { class: "logo-img", src: LOGO, alt: "QOS" }
+                }
+                div { class: "hdr-stats",
+                    div { class: "stat", title: "{stale_tip}", span { class: "lbl", "Net Liq{ccy_lbl}" } span { class: "val{stale_cls}", "{net_s}" } }
+                    div { class: "stat stat-2", title: "{stale_tip}", span { class: "lbl", "Unrealized" } span { class: "val {pnl_class(upnl)}{stale_cls}", "{upnl_s}" } }
+                    div { class: "stat stat-2", title: "{stale_tip}", span { class: "lbl", "Realized" } span { class: "val {pnl_class(rpnl)}{stale_cls}", "{rpnl_s}" } }
+                    if known && stale { span { class: "pill warn", title: "{stale_tip}", "STALE" } }
+                }
+                DailyRisk {}
             }
-            div { class: "hdr-stats",
-                div { class: "stat", title: "{stale_tip}", span { class: "lbl", "Net Liq{ccy_lbl}" } span { class: "val{stale_cls}", "{net_s}" } }
-                div { class: "stat", title: "{stale_tip}", span { class: "lbl", "Unrealized" } span { class: "val {pnl_class(upnl)}{stale_cls}", "{upnl_s}" } }
-                div { class: "stat", title: "{stale_tip}", span { class: "lbl", "Realized" } span { class: "val {pnl_class(rpnl)}{stale_cls}", "{rpnl_s}" } }
-                if known && stale { span { class: "pill warn", title: "{stale_tip}", "STALE" } }
-            }
-            DailyRisk {}
             div { class: "hdr-right",
                 ModeSwitch {}
                 KillSwitch {}
@@ -369,9 +372,7 @@ pub fn Header() -> Element {
                 PresetSwitch {}
                 NotifBell {}
                 button { class: "tool", title: "Keyboard shortcuts (?)", onclick: move |_| { let v = !*st.help_open.peek(); st.help_open.set(v); }, "?" }
-                span { class: if api_ok { "pill ok" } else { "pill bad" }, "API" }
-                ConnPill { ib_ok }
-                span { class: "clock", "{short_time(&last_q)} UTC" }
+                ConnPill { ib_ok, api_ok, last: short_time(&last_q) }
             }
         }
     }
@@ -606,7 +607,7 @@ pub fn Chart(pane: usize, hidden: bool) -> Element {
             st.pane_loading[pane].set(false);
         });
     });
-    #[cfg(any(feature = "desktop", feature = "mobile", feature = "demo"))]
+    #[cfg(any(feature = "desktop", feature = "mobile", feature = "demo", feature = "web"))]
     use_future(move || async move {
         loop {
             crate::sleep_ms(60000).await;
@@ -950,18 +951,19 @@ fn handle_hotkey(st: &mut State, name: &str) {
 
 // ---------------- round 6 components ----------------
 #[component]
-fn ConnPill(ib_ok: bool) -> Element {
+fn ConnPill(ib_ok: bool, api_ok: bool, last: String) -> Element {
     let st = app_state();
     let conn = st.conn.read().clone();
     let ws = *st.ws_open.read();
     let state = conn.as_ref().map(|c| c.state.clone()).unwrap_or_else(|| if ib_ok { "connected".into() } else { "disconnected".into() });
-    let (cls, label) = match state.as_str() {
+    // one status pill: the engine API first (nothing works without it), then the IBKR connection
+    let (cls, label) = if !api_ok { ("pill bad", "API offline".to_string()) } else { match state.as_str() {
         "connected" => ("pill ok", "IBKR".to_string()),
-        "reconnecting" => ("pill warn", "IBKR · reconnecting".to_string()),
+        "reconnecting" => ("pill warn", "IBKR …".to_string()),
         _ => ("pill bad", "IBKR".to_string()),
-    };
+    } };
     let rec = conn.as_ref().map(|c| c.reconnects).unwrap_or(0);
-    let title = format!("{} · reconnects: {} · realtime: {}", state, rec, if ws { "websocket" } else { "polling" });
+    let title = format!("API {} · IBKR {} · reconnects: {} · realtime: {} · last quote {} UTC", if api_ok { "ok" } else { "offline" }, state, rec, if ws { "websocket" } else { "polling" }, last);
     rsx! {
         span { class: "{cls}", title: "{title}", "{label}" }
         span { class: if ws { "dot live" } else { "dot" }, title: if ws { "Realtime stream connected" } else { "Polling fallback (websocket offline)" } }
@@ -977,7 +979,7 @@ fn PresetSwitch() -> Element {
         div { class: "preset-dd",
             button { class: if *open.read() { "preset-btn open" } else { "preset-btn" }, title: "Layout preset",
                 onclick: move |_| { let v = !*open.peek(); open.set(v); },
-                span { class: "preset-ic", "▦" } span { "{cur}" } span { class: "caret", "▾" }
+                span { class: "preset-ic", "▦" } span { class: "preset-name", "{cur}" } span { class: "caret", "▾" }
             }
             if *open.read() {
                 div { class: "ctx-bg", onclick: move |_| open.set(false) }
@@ -1051,6 +1053,14 @@ fn HelpModal() -> Element {
 }
 
 static UI_ZOOM_BITS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0x3FF0_0000_0000_0000);
+
+/// After sign-in: reconnect the live stream with the new session (desktop: the address carries the token; web: the
+/// browser sends the session cookie)
+async fn reconnect_live_stream() {
+    let u = get_ws_url().await.unwrap_or_default();
+    let js = serde_json::to_string(&u).unwrap_or_default();
+    let _ = document::eval(&format!("window.qxWs && window.qxWs.reconnect({js})"));
+}
 
 fn ui_zoom_get() -> f64 { f64::from_bits(UI_ZOOM_BITS.load(std::sync::atomic::Ordering::Relaxed)) }
 
@@ -1164,14 +1174,15 @@ pub fn Dropdown(
                 span { class: "dd-caret", "▾" }
             }
             if *open.read() {
-                div { class: "dd-bg", onclick: move |_| open.set(false) }
+                div { class: "dd-bg", onclick: move |e| { e.prevent_default(); e.stop_propagation(); open.set(false); } }
                 div { class: "dd-menu", style: "{place}", role: "listbox",
                     for (i, (v, l)) in options.iter().cloned().enumerate() {
                         div {
                             key: "{v}",
                             class: if v == value { if i == *hi.read() { "dd-opt sel hi" } else { "dd-opt sel" } } else if i == *hi.read() { "dd-opt hi" } else { "dd-opt" },
                             onmouseenter: move |_| hi.set(i),
-                            onclick: move |_| { onchange.call(v.clone()); open.set(false); },
+                            // inside a <label> the click would also "activate" the label → its button → the list reopens
+                            onclick: move |e| { e.prevent_default(); e.stop_propagation(); onchange.call(v.clone()); open.set(false); },
                             span { class: "dd-check", if v == value { "✓" } }
                             span { "{l}" }
                         }
@@ -2476,7 +2487,7 @@ pub fn NodesSidePanel() -> Element {
         let _ = tick.read();
         spawn(async move { if let Ok(d) = get_nodes().await { data.set(d); } });
     });
-    #[cfg(any(feature = "desktop", feature = "mobile", feature = "demo"))]
+    #[cfg(any(feature = "desktop", feature = "mobile", feature = "demo", feature = "web"))]
     use_future(move || async move { loop { crate::sleep_ms(5000).await; tick += 1; } });
     let w = *st.ticket_w.read();
     let d = data.read().clone();
@@ -3680,9 +3691,9 @@ pub fn AuditPanel() -> Element {
             loading.set(true);
             if let Ok(a) = get_audit(150).await { items.set(a); }
             loading.set(false);
-            #[cfg(any(feature = "desktop", feature = "mobile", feature = "demo"))]
+            #[cfg(any(feature = "desktop", feature = "mobile", feature = "demo", feature = "web"))]
             crate::sleep_ms(5000).await;
-            #[cfg(not(any(feature = "desktop", feature = "mobile", feature = "demo")))]
+            #[cfg(not(any(feature = "desktop", feature = "mobile", feature = "demo", feature = "web")))]
             break;
         }
     });
@@ -3782,7 +3793,7 @@ pub fn PerformancePanel() -> Element {
             if let Ok(t) = get_trades(r, String::new(), src, sc, tz).await { trades.set(t); }
         });
     });
-    #[cfg(any(feature = "desktop", feature = "mobile", feature = "demo"))]
+    #[cfg(any(feature = "desktop", feature = "mobile", feature = "demo", feature = "web"))]
     use_future(move || async move {
         loop { crate::sleep_ms(30000).await; tick += 1; }
     });
@@ -4075,7 +4086,8 @@ pub fn LoginScreen() -> Element {
         st.login_busy.set(true);
         spawn(async move {
             match op_login(id, pin).await {
-                Ok(o) => { op_pin.set(String::new()); err.set(String::new()); st.op.set(Some(OpStatus { configured: true, operator: Some(o), ..Default::default() })); }
+                Ok(o) => { op_pin.set(String::new()); err.set(String::new()); st.op.set(Some(OpStatus { configured: true, operator: Some(o), ..Default::default() }));
+                    spawn(reconnect_live_stream()); }   // web: the live stream needs the new session
                 Err(e) => err.set(format!("{e}")),
             }
             st.login_busy.set(false);
@@ -4087,7 +4099,8 @@ pub fn LoginScreen() -> Element {
         st.login_busy.set(true);
         spawn(async move {
             match op_bootstrap(n, pin).await {
-                Ok(o) => { err.set(String::new()); st.op.set(Some(OpStatus { configured: true, operator: Some(o), ..Default::default() })); }
+                Ok(o) => { err.set(String::new()); st.op.set(Some(OpStatus { configured: true, operator: Some(o), ..Default::default() }));
+                    spawn(reconnect_live_stream()); }
                 Err(e) => err.set(format!("{e}")),
             }
             st.login_busy.set(false);
@@ -4129,7 +4142,7 @@ pub fn LoginScreen() -> Element {
                 div { class: "login-brand qos", img { class: "logo-img big", src: LOGO, alt: "QOS" } span { class: "qos-tag", "Quant Operating System" } }
                 div { class: "login-broker", span { class: "tag sky", "Interactive Brokers" } span { class: "muted small", "Only IBKR usernames and accounts are supported in this version." } }
                 if api_down {
-                    div { class: "notice", "Cannot reach the bot API. Start it with  uv run uvicorn api.server:app --port 8000  in the bot folder." }
+                    div { class: "notice", "Cannot reach the engine API (127.0.0.1:8000). If the engine runs on a server, open the SSH tunnel first (deploy/tunnel.sh in the bot folder) and keep it running." }
                 }
                 div { class: "login-steps",
                     span { class: if step == 0 { "step active" } else { "step done" }, "1 · Operator" }
@@ -4139,8 +4152,10 @@ pub fn LoginScreen() -> Element {
 
                 // ---------- step 0: operator ----------
                 if step == 0 {
-                    if configured_ops {
-                        label { class: "fld", span { "Operator" }
+                    if op.is_none() {
+                        p { class: "muted small", "Connecting to the engine…" }       // status not loaded yet: never offer to create an admin
+                    } else if configured_ops {
+                        div { class: "fld", span { "Operator" }
                             Dropdown { class: "wl-market", value: "{op_id}", onchange: move |v| op_id.set(v),
                                 options: std::iter::once((String::new(), "— choose —".to_string())).chain(operators.iter().map(|o| (o.id.to_string(), format!("{} ({})", o.name, o.role)))).collect::<DdOpts>() } }
                         label { class: "fld", span { "PIN" }
@@ -4266,8 +4281,8 @@ fn AssistantChip() -> Element {
     let mut st = app_state();
     let a = st.risk.read().as_ref().map(|r| r.assistant.clone()).unwrap_or_default();
     let admin = st.is_admin();
-    let (cls, label) = if a.write_enabled { ("asst-chip on", if a.live { "AI: trading (LIVE)" } else { "AI: trading (paper)" }) } else { ("asst-chip", "AI: read-only") };
-    let title = format!("MCP assistant (Claude/ChatGPT) · {} orders in the last hour · limit {} USD/order{}", a.orders_last_hour, a.max_order_notional_usd, if admin { " · click to toggle" } else { "" });
+    let (cls, label, state) = if a.write_enabled { if a.live { ("asst-chip on live", "AI LIVE", "trading (LIVE)") } else { ("asst-chip on", "AI", "trading (paper)") } } else { ("asst-chip", "AI", "read-only") };
+    let title = format!("AI assistant (MCP): {state} · {} orders in the last hour · limit {} USD/order{}", a.orders_last_hour, a.max_order_notional_usd, if admin { " · click to toggle" } else { "" });
     let on_now = a.write_enabled;
     rsx! {
         button { class: "{cls}", title: "{title}", disabled: !admin, onclick: move |_| {
@@ -4275,7 +4290,7 @@ fn AssistantChip() -> Element {
             spawn(async move { match put_assistant(Some(on), None, None, None, None, None).await {
                 Ok(_) => { if let Ok(r) = get_risk().await { st.risk.set(Some(r)); } st.notify("info", if on { "AI assistant trading enabled" } else { "AI assistant set to read-only" }); }
                 Err(e) => st.toast.set(Some((false, format!("Failed: {e}")))) } });
-        }, "🤖 " "{label}" }
+        }, "{label}" }
     }
 }
 
@@ -4286,9 +4301,10 @@ fn OperatorChip() -> Element {
     let Some(o) = op.operator.clone() else { return rsx! {} };
     let cls = match o.role.as_str() { "admin" => "tag lav xs", "trader" => "tag mint xs", "risk" => "tag peach xs", _ => "tag xs" };
     rsx! {
-        div { class: "op-chip", title: "Operator · click to lock the terminal",
+        div { class: "op-chip", title: "Operator {o.name} ({o.role}) · click to lock the terminal",
             onclick: move |_| { spawn(async move { let _ = op_logout().await; st.op.set(Some(OpStatus { configured: true, ..Default::default() })); st.notify("info", "Terminal locked"); }); },
-            span { class: "{cls}", "{o.role}" } span { "{o.name}" } span { class: "muted", "🔒" }
+            if o.role != "admin" { span { class: "{cls}", "{o.role}" } }
+            span { "{o.name}" } span { class: "muted", "🔒" }
         }
     }
 }
@@ -4355,7 +4371,7 @@ pub fn CloudMenu() -> Element {
             if let Ok(t) = get_cloud_status().await { data.set(serde_json::from_str(&t).unwrap_or_default()); }
         });
     });
-    #[cfg(any(feature = "desktop", feature = "mobile", feature = "demo"))]
+    #[cfg(any(feature = "desktop", feature = "mobile", feature = "demo", feature = "web"))]
     use_future(move || async move {
         let mut n = 0u32;
         loop {
@@ -4376,7 +4392,7 @@ pub fn CloudMenu() -> Element {
     let login = d.get("login").cloned().unwrap_or(serde_json::Value::Null);
     let lstate = js(&login, &["state"]);
     let pending = matches!(lstate.as_str(), "pending" | "slow_down");
-    let (chip_cls, chip_txt) = if !signed_in { ("pill", "Cloud".to_string()) }
+    let (chip_cls, chip_txt) = if !signed_in { ("pill off", "☁".to_string()) }
         else if !features { ("pill bad", "Cloud · sign-in expired".to_string()) }
         else if left < 2 * 86400 { ("pill warn", format!("Cloud · offline {}", cloud_dur(left))) }
         else { ("pill ok", format!("Cloud · {}", if plan.is_empty() { "on".to_string() } else { plan.clone() })) };
@@ -4889,7 +4905,7 @@ fn NodesTab() -> Element {
         if id.is_empty() { return; }
         spawn(async move { if let Ok(l) = get_node_log(id, lv).await { log_lines.set(l); } });
     });
-    #[cfg(any(feature = "desktop", feature = "mobile", feature = "demo"))]
+    #[cfg(any(feature = "desktop", feature = "mobile", feature = "demo", feature = "web"))]
     use_future(move || async move {
         loop { crate::sleep_ms(3000).await; tick += 1; }
     });
@@ -5210,7 +5226,7 @@ fn PortfolioPanel() -> Element {
             if let Ok(t) = get_portfolio_risk().await { data.set(serde_json::from_str(&t).unwrap_or_default()); }
         });
     });
-    #[cfg(any(feature = "desktop", feature = "mobile", feature = "demo"))]
+    #[cfg(any(feature = "desktop", feature = "mobile", feature = "demo", feature = "web"))]
     use_future(move || async move {
         loop { crate::sleep_ms(30000).await; if !*editing.peek() { tick += 1; } }
     });
@@ -5328,7 +5344,7 @@ fn SystemPanel() -> Element {
             if let Ok(t) = get_system_health().await { data.set(serde_json::from_str(&t).unwrap_or_default()); }
         });
     });
-    #[cfg(any(feature = "desktop", feature = "mobile", feature = "demo"))]
+    #[cfg(any(feature = "desktop", feature = "mobile", feature = "demo", feature = "web"))]
     use_future(move || async move {
         loop { crate::sleep_ms(30000).await; tick += 1; }
     });
@@ -5438,7 +5454,7 @@ fn SoakPanel() -> Element {
             if !id.is_empty() { if let Ok(x) = get_soak_detail(id).await { detail.set(Some(x)); } } else { detail.set(None); }
         });
     });
-    #[cfg(any(feature = "desktop", feature = "mobile", feature = "demo"))]
+    #[cfg(any(feature = "desktop", feature = "mobile", feature = "demo", feature = "web"))]
     use_future(move || async move {
         loop { crate::sleep_ms(30000).await; tick += 1; }
     });
@@ -5831,7 +5847,7 @@ fn StoreView(mode: Signal<&'static str>) -> Element {
     let mut busy = use_signal(String::new);
     let mut tick = use_signal(|| 0u32);
     let mut pending = use_signal(String::new);
-    #[cfg(any(feature = "desktop", feature = "mobile", feature = "demo"))]
+    #[cfg(any(feature = "desktop", feature = "mobile", feature = "demo", feature = "web"))]
     use_future(move || async move {
         loop {
             crate::sleep_ms(5000).await;
@@ -6107,7 +6123,7 @@ fn PackagesView(mode: Signal<&'static str>) -> Element {
         }
     });
     // track jobs (install / evaluate) + refresh status during evaluation
-    #[cfg(any(feature = "desktop", feature = "mobile", feature = "demo"))]
+    #[cfg(any(feature = "desktop", feature = "mobile", feature = "demo", feature = "web"))]
     use_future(move || async move {
         let mut n = 0u32;
         loop {
@@ -6574,7 +6590,7 @@ fn ConfigsView(mode: Signal<&'static str>) -> Element {
         spawn(async move { warnings.set(get_deploy_check(f).await.unwrap_or_default()); });
     });
     // track running jobs
-    #[cfg(any(feature = "desktop", feature = "mobile", feature = "demo"))]
+    #[cfg(any(feature = "desktop", feature = "mobile", feature = "demo", feature = "web"))]
     use_future(move || async move {
         loop {
             crate::sleep_ms(1500).await;

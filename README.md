@@ -29,6 +29,14 @@ Build an app bundle:
 dx bundle --platform desktop --release
 ```
 
+## Web version
+
+The same Terminal also runs in the browser, served from your engine server. Each
+[release](https://github.com/qos-one/qos-terminal/releases) contains the build (`qos-terminal-web.tgz`: WASM client +
+Linux server); the engine's installer downloads it — see
+[Running QOS on your own server](https://github.com/qos-one/qos/blob/main/docs/SELF_HOSTING.md).
+To build it yourself: `dx bundle --platform web --release`.
+
 ## Layout
 
 | Path | What it is |

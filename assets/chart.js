@@ -305,8 +305,11 @@
 
   // ---------- round 6: websocket client, hotkeys, sounds ----------
   const send0 = (m) => { try { if (window.__qxSend) window.__qxSend(m); else { const q = (window.__qxQueue = window.__qxQueue || []); q.push(m); if (q.length > 50) q.shift(); } } catch (e) {} };
-  const WS = { sock: null, url: window.QX_WS_URL || "ws://127.0.0.1:8000/ws", alive: false, timer: null, ping: null, backoff: 1000 };
+  // desktop app (dioxus:// or http://dioxus.index.html): the local default; browser: wait for the address from the server
+  const QX_DESKTOP = location.protocol === "dioxus:" || location.hostname === "dioxus.index.html";
+  const WS = { sock: null, url: window.QX_WS_URL || (QX_DESKTOP ? "ws://127.0.0.1:8000/ws" : ""), alive: false, timer: null, ping: null, backoff: 1000 };
   function wsConnect() {
+    if (!WS.url) return;
     if (WS.sock && (WS.sock.readyState === 0 || WS.sock.readyState === 1)) return;
     try { WS.sock = new WebSocket(WS.url); } catch (e) { return wsRetry(); }
     WS.sock.onopen = () => { WS.alive = true; WS.backoff = 1000; send0({ type: "ws_state", open: true });
@@ -317,8 +320,11 @@
   }
   function wsRetry() { clearTimeout(WS.timer); WS.timer = setTimeout(wsConnect, WS.backoff); WS.backoff = Math.min(WS.backoff * 1.6, 15000); }
   // the Terminal passes the address derived from BOT_API; reconnect when it differs from the default
-  function wsSetUrl(u) { if (!u || u === WS.url) return; WS.url = u; try { if (WS.sock) WS.sock.close(); } catch (e) {} if (!window.QX_NO_WS) wsConnect(); }
-  window.qxWs = { connect: wsConnect, setUrl: wsSetUrl, alive: () => WS.alive };
+  // "/ws" (web Terminal behind a reverse proxy) → same host as the page, wss on https
+  function wsAbs(u) { return u && u[0] === "/" ? (location.protocol === "https:" ? "wss://" : "ws://") + location.host + u : u; }
+  function wsSetUrl(u) { u = wsAbs(u); if (!u || u === WS.url) return; WS.url = u; try { if (WS.sock) WS.sock.close(); } catch (e) {} if (!window.QX_NO_WS) wsConnect(); }
+  function wsReconnect(u) { if (u) WS.url = wsAbs(u); WS.backoff = 1000; try { if (WS.sock) WS.sock.close(); } catch (e) {} if (!window.QX_NO_WS) wsConnect(); }
+  window.qxWs = { connect: wsConnect, setUrl: wsSetUrl, reconnect: wsReconnect, alive: () => WS.alive };
   if (!window.QX_NO_WS) wsConnect(); // web demo: no local bot, poll the demo backend instead
 
   // hotkeys: ignored while typing in input/textarea/select

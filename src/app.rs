@@ -80,9 +80,19 @@ pub fn App() -> Element {
     use_context_provider(|| st);
     use_hook(|| crate::ui::ui_zoom_restore());
 
-    #[cfg(any(feature = "desktop", feature = "mobile", feature = "demo"))]
+    #[cfg(any(feature = "desktop", feature = "mobile", feature = "demo", feature = "web"))]
     {
         let mut st = st;
+
+        // browser builds: copy the page clock for calc::now_secs (std::time is not available in wasm)
+        #[cfg(target_arch = "wasm32")]
+        use_future(move || async move {
+            loop {
+                let mut ev = document::eval("dioxus.send(Date.now());");
+                if let Ok(ms) = ev.recv::<f64>().await { crate::calc::set_web_now_ms(ms); }
+                crate::sleep_ms(1000).await;
+            }
+        });
 
         // viewer's time zone: history "today" / "week" start at local midnight
         use_future(move || async move {

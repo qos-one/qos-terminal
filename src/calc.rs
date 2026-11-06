@@ -259,12 +259,18 @@ pub fn iso_epoch(s: &str) -> f64 {
     t
 }
 
-/// Wall clock in Unix seconds (None in the browser demo, where std::time is unavailable).
+/// Browser builds: std::time panics on wasm32 ("unreachable"), so the app copies the browser clock here every second.
+static WEB_NOW_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub fn set_web_now_ms(ms: f64) {
+    if ms.is_finite() && ms > 0.0 { WEB_NOW_MS.store(ms as u64, std::sync::atomic::Ordering::Relaxed); }
+}
+
+/// Wall clock in Unix seconds (in the browser: the last value copied from the page; None until the first copy).
 pub fn now_secs() -> Option<f64> {
     #[cfg(not(target_arch = "wasm32"))]
     { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_secs_f64()) }
     #[cfg(target_arch = "wasm32")]
-    { None }
+    { let ms = WEB_NOW_MS.load(std::sync::atomic::Ordering::Relaxed); (ms > 0).then(|| ms as f64 / 1000.0) }
 }
 
 /// A quote is stale when its last update is older than `max_age` seconds relative to `now`
@@ -272,6 +278,21 @@ pub fn now_secs() -> Option<f64> {
 pub fn quote_stale(quote_time: Option<&str>, now: Option<f64>, freshest: Option<f64>, max_age: f64) -> bool {
     let Some(t) = quote_time.filter(|s| s.len() >= 10).map(iso_epoch) else { return true };
     match now.or(freshest) { Some(n) => n - t > max_age, None => false }
+}
+
+/// Value of cookie `name` in a Cookie header ("a=1; qos_op=xyz") — None when missing or empty
+pub fn cookie_value(header: &str, name: &str) -> Option<String> {
+    header.split(';').find_map(|c| {
+        let (k, v) = c.trim().split_once('=')?;
+        (k == name && !v.is_empty()).then(|| v.to_string())
+    })
+}
+
+/// Set-Cookie for the operator token: HttpOnly (page scripts cannot read it), Secure, SameSite=Strict (never sent by
+/// other sites), 12 h like the API's longest session; an empty token deletes the cookie
+pub fn op_cookie(name: &str, token: &str) -> String {
+    let age = if token.is_empty() { 0 } else { 12 * 3600 };
+    format!("{name}={token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age={age}")
 }
 
 /// "http://127.0.0.1:8000" → "ws://127.0.0.1:8000/ws" ("https" → "wss")
@@ -431,6 +452,10 @@ mod tests {
         assert_eq!(breadth_of([1.0, -0.5, 0.0]), (1, 1, 3));
         assert_eq!(ws_url_from("http://10.0.0.5:9000/"), "ws://10.0.0.5:9000/ws");
         assert_eq!(ws_url_from("https://bot.local"), "wss://bot.local/ws");
+        assert_eq!(cookie_value("a=1; qos_op=tok123; b=2", "qos_op").as_deref(), Some("tok123"));
+        assert_eq!(cookie_value("xqos_op=no; qos_op=", "qos_op"), None);
+        assert!(op_cookie("qos_op", "t").contains("HttpOnly; Secure; SameSite=Strict; Max-Age=43200"));
+        assert!(op_cookie("qos_op", "").ends_with("Max-Age=0"));
     }
 
     #[test]
