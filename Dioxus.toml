@@ -1,0 +1,27 @@
+[application]
+
+[bundle]
+identifier = "com.quantx.terminal"
+icon = ["assets/icon/icon_32.png", "assets/icon/icon_128.png", "assets/icon/icon_256.png", "assets/icon/icon_512.png", "assets/icon/icon_1024.png"]
+copyright = "QOS"
+category = "Finance"
+
+[web.app]
+
+# HTML title tag content
+title = "QOS Terminal"
+
+# include `assets` in web platform
+[web.resource]
+
+# Additional CSS style files
+style = []
+
+# Additional JavaScript files
+script = []
+
+[web.resource.dev]
+
+# Javascript code file
+# serve: [dev-server] only
+script = []

@@ -1,0 +1,23 @@
+QOS Terminal — desktop trading terminal of the Quant Operating System
+Copyright (c) 2026 Seksin Cheevirot and the QOS contributors
+https://qos.one
+
+Licensed under the GNU Affero General Public License, version 3 only (AGPL-3.0-only).
+See LICENSE.
+
+"QOS", "qos.one" and the QOS logo (including the files in assets/icon/ and assets/qos-logo.png)
+are trademarks and are not licensed under AGPL-3.0. See TRADEMARKS.md. Forks must remove them
+or obtain permission.
+
+Third-party software
+--------------------
+* TradingView Lightweight Charts (assets/lightweight-charts.js) — Apache License 2.0,
+  Copyright (c) TradingView, Inc. https://www.tradingview.com/ — its attribution
+  requirements apply and the attribution link in the chart must be kept.
+* Tailwind CSS (assets/tailwind.css, generated) — MIT License, Copyright (c) Tailwind Labs, Inc.
+* Dioxus and other Rust crates — see Cargo.toml and Cargo.lock; each crate's license applies.
+
+No warranty
+-----------
+QOS is trading software. It is provided "as is", without warranty of any kind. Trading
+involves substantial risk of loss. Nothing in this repository is investment advice.

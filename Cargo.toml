@@ -1,0 +1,28 @@
+[package]
+name = "dashboard"
+version = "0.1.0"
+authors = ["The QOS contributors"]
+edition = "2021"
+license = "AGPL-3.0-only"
+
+[dependencies]
+dioxus = { version = "0.7.1", features = ["router", "fullstack"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", features = ["json"], optional = true }
+tokio = { version = "1", features = ["time"], optional = true }
+
+# macOS Dock icon (set at runtime + copy .icns into the bundle)
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSImage", "NSResponder"] }
+objc2-foundation = { version = "0.3", features = ["NSData", "NSString"] }
+
+[features]
+default = ["desktop"]
+web = ["dioxus/web"]
+desktop = ["dioxus/desktop", "dep:tokio"]
+mobile = ["dioxus/mobile", "dep:tokio"]
+server = ["dioxus/server", "dep:reqwest", "dep:tokio"]
+# Used only by the web demo crate (../demo) — no effect in dashboard
+demo = []

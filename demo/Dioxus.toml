@@ -1,0 +1,11 @@
+[application]
+name = "qos-demo"
+default_platform = "web"
+asset_dir = "assets"
+
+[web.app]
+title = "QOS Terminal — Live demo"
+
+[web.watcher]
+watch_path = ["../src", "assets"]
+index_on_404 = true
