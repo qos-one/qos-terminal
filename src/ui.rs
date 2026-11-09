@@ -2335,6 +2335,14 @@ fn heat_color(chg: f64) -> String {
     format!("hsl({h} {sat}% {light}%)")
 }
 
+fn heat_note(gid: &str) -> &'static str {
+    match gid {
+        "GAINERS" | "LOSERS" => "Whole US market, scanned by IBKR (price ≥ $5, volume ≥ 200k) · tile size = size of the move · click a tile to load it in the chart · refreshed in the background every 2 min",
+        "ACTIVE" => "Whole US market, scanned by IBKR (price ≥ $5, volume ≥ 200k) · tile size = volume rank · click a tile to load it in the chart · refreshed in the background every 2 min",
+        _ => "Tile size reflects approximate index weight · click a tile to load it in the chart · refreshed in the background every 2 min",
+    }
+}
+
 fn tile_span(weight: f64, max_w: f64) -> (u8, u8) {
     let r = if max_w > 0.0 { weight / max_w } else { 0.0 };
     if r >= 0.6 { (4, 3) } else if r >= 0.35 { (3, 2) } else if r >= 0.18 { (2, 2) } else if r >= 0.09 { (2, 1) } else { (1, 1) }
@@ -2372,6 +2380,8 @@ pub fn HeatmapModal() -> Element {
     let breadth: Option<Breadth> = d.as_ref().map(|h| h.breadth.clone().unwrap_or_else(|| { let (up, down, total) = crate::calc::breadth_of(h.items.iter().map(|i| i.change_pct)); Breadth { up, down, total } }));
     let items: Vec<HeatItem> = d.as_ref().map(|h| h.items.clone()).unwrap_or_default();
     let has_data = d.is_some();
+    let missing: Vec<String> = d.as_ref().map(|h| h.missing.clone()).unwrap_or_default();
+    let age_note = d.as_ref().filter(|h| h.refreshing).map(|h| format!(" · showing the snapshot from {:.0} s ago, a fresh one is loading — reopen to see it", h.age_s)).unwrap_or_default();
     let err_msg = err.read().clone();
     let max_w = items.iter().map(|i| i.weight).fold(0.0, f64::max);
 
@@ -2430,7 +2440,8 @@ pub fn HeatmapModal() -> Element {
                                 }
                             }
                         }
-                        p { class: "muted xs heat-note", "Tile size reflects approximate index weight · click a tile to load it in the chart · snapshot cached 60 s" }
+                        p { class: "muted xs heat-note", "{heat_note(&gid)}{age_note}" }
+                        if !missing.is_empty() { p { class: "muted xs heat-note", "Not available at IBKR ({missing.len()}): {missing.join(\", \")}" } }
                     }
                 }
             }

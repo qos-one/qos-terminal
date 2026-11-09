@@ -91,6 +91,9 @@ pub struct Heatmap {
     pub name: String,
     #[serde(default)] pub items: Vec<HeatItem>,
     #[serde(default)] pub breadth: Option<Breadth>,
+    #[serde(default)] pub missing: Vec<String>,
+    #[serde(default)] pub age_s: f64,
+    #[serde(default)] pub refreshing: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
