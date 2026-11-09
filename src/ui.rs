@@ -880,6 +880,14 @@ fn handle_ws(st: &mut State, m: serde_json::Value) {
             w.insert(0, ev);
             w.truncate(300);
         }
+        "warning" => {
+            // engine problem the operator must act on: orders left working after a stop/cancel, IB Gateway down 15+ min
+            let text = m.get("text").and_then(|x| x.as_str()).unwrap_or("Engine warning").to_string();
+            let ok = m.get("event").and_then(|x| x.as_str()) == Some("info");
+            st.notify(if ok { "info" } else { "error" }, text.clone());
+            st.toast.set(Some((ok, text)));
+            st.refresh_tick += 1;
+        }
         "assistant_action" => {
             let text = m.get("text").and_then(|x| x.as_str()).unwrap_or("AI assistant action").to_string();
             st.notify("alert", text);
