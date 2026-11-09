@@ -804,6 +804,8 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--lavender, #c4b
 .demo-badge .demo-dot { width: 7px; height: 7px; border-radius: 50%; background: #2ee57a; box-shadow: 0 0 0 3px rgba(46, 229, 122, .2); }
 .demo-badge .demo-dl { padding: 5px 11px; border-radius: 999px; background: #68adf3; color: #10102a; font-weight: 600; text-decoration: none; }
 .demo-badge .demo-dl:hover { background: #4f97e3; }
+.demo-badge .demo-gh { padding: 5px 11px; border-radius: 999px; border: 1px solid rgba(255,255,255,.35); color: inherit; font-weight: 600; text-decoration: none; }
+.demo-badge .demo-gh:hover { background: rgba(255,255,255,.12); }
 .demo-badge .demo-fs { padding: 5px 11px; border-radius: 999px; background: transparent; border: 1px solid rgba(104, 173, 243, .45); color: #cdd5e1; font: inherit; font-weight: 600; cursor: pointer; }
 .demo-badge .demo-fs:hover { background: rgba(104, 173, 243, .15); color: #fff; }
 

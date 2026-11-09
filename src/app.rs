@@ -296,7 +296,8 @@ fn DemoBadge() -> Element {
             span { class: "demo-dot" }
             span { b { "Live demo" } " · simulated market data · no real orders" }
             button { class: "demo-fs", title: "Full screen (Esc to exit)", onclick: move |_| { let _ = document::eval(crate::ui::WEB_FULLSCREEN_JS); }, "⤢ Full screen" }
-            a { class: "demo-dl", href: "{site}/download", target: "_blank", "Download QOS Terminal" }
+            a { class: "demo-dl", href: "{site}/download", target: "_blank", "Install QOS" }
+            a { class: "demo-gh", href: "https://github.com/qos-one", target: "_blank", rel: "noopener", "GitHub" }
         }
     }
 }
