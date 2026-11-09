@@ -1,8 +1,8 @@
 # Contributing to QOS
 
 Thank you for helping build the open-source Quant Operating System. This repository holds the
-QOS Terminal — the desktop app built with Rust and Dioxus. The engine, local API and developer kit
-live in the `bot` repository.
+QOS Terminal — the trading desk built with Rust and Dioxus, served to the browser by the QOS engine. The engine,
+its API and the developer kit live in the [qos](https://github.com/qos-one/qos) repository.
 
 ## Ways to help
 

@@ -1,41 +1,36 @@
 # QOS Terminal
 
-The desktop app of QOS, the Quant Operating System: watchlist, charts, agents, positions,
-orders, risk controls and the built-in Store — running on your own Mac, connected to your own
-Interactive Brokers account.
+The trading desk of QOS, the Quant Operating System: watchlist, charts, heatmaps, agents,
+positions, orders, risk controls and the built-in Store — connected to your own Interactive
+Brokers account.
 
-The Terminal talks to the QOS engine running on the same computer
-([qos](https://github.com/qos-one/qos)). Your broker login, orders and P&L stay on your
-machine.
+It runs in your browser, served by the QOS engine on your own server
+([qos](https://github.com/qos-one/qos)). Your broker login, orders and P&L stay on that
+server.
 
 > QOS is trading software, not investment advice. Trading involves substantial risk of loss.
 > Start with an IBKR **paper** account.
 
-## Build and run
+## Use it
 
-Requirements: Rust (stable), the Dioxus CLI 0.7, and the QOS engine running locally.
+Each [release](https://github.com/qos-one/qos-terminal/releases) contains the web build
+(`qos-terminal-web.tgz`: WASM client and Linux server, with a SHA-256 checksum). The engine's
+installer downloads and sets it up for you — see
+[Running QOS on your own server](https://github.com/qos-one/qos/blob/main/docs/SELF_HOSTING.md).
+Then open `https://terminal.<your-domain>` in any browser and sign in with your operator PIN.
+
+## Build from source
+
+Requirements: Rust (stable) and the Dioxus CLI 0.7.
 
 ```bash
 cargo install dioxus-cli --version 0.7.10 --locked
-dx serve --platform desktop
+dx bundle --platform web --release        # the web build the releases contain
+dx serve --platform desktop               # or a desktop window, for development
 ```
 
-By default the Terminal connects to the engine at `http://127.0.0.1:8000`. Set `BOT_API` to
-use another address.
-
-Build an app bundle:
-
-```bash
-dx bundle --platform desktop --release
-```
-
-## Web version
-
-The same Terminal also runs in the browser, served from your engine server. Each
-[release](https://github.com/qos-one/qos-terminal/releases) contains the build (`qos-terminal-web.tgz`: WASM client +
-Linux server); the engine's installer downloads it — see
-[Running QOS on your own server](https://github.com/qos-one/qos/blob/main/docs/SELF_HOSTING.md).
-To build it yourself: `dx bundle --platform web --release`.
+The Terminal connects to the engine at `http://127.0.0.1:8000` by default (for a remote engine,
+through an SSH tunnel). Set `BOT_API` to use another address.
 
 ## Layout
 
@@ -43,7 +38,7 @@ To build it yourself: `dx bundle --platform web --release`.
 |---|---|
 | `src/app.rs` | App shell, routing and top bar |
 | `src/ui.rs` | Screens and components |
-| `src/api.rs` | Server functions that call the local QOS engine |
+| `src/api.rs` | Server functions that call the QOS engine API |
 | `assets/` | Styles, chart code and icons |
 | `demo/` | Browser build of the Terminal on simulated data (the live demo) — see `demo/README.md` |
 
