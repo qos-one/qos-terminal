@@ -536,7 +536,20 @@ pub struct AssistantCfg {
     #[serde(default)] pub max_order_notional_usd: f64, #[serde(default)] pub max_orders_per_hour: i64,
     #[serde(default)] pub allow_short: bool, #[serde(default = "d_true")] pub allow_agents: bool,
     #[serde(default)] pub confirm_ttl_s: i64, #[serde(default)] pub orders_last_hour: i64, #[serde(default)] pub operator_exists: bool,
+    /// on = the assistant confirms its own orders; off = an operator approves each one in the Terminal
+    #[serde(default)] pub auto_confirm: bool,
 }
+
+/// an assistant order waiting for the operator's approval (auto-confirm off)
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct AssistantTicket {
+    #[serde(default)] pub token: String, #[serde(default)] pub key: String, #[serde(default)] pub side: String,
+    #[serde(default)] pub qty: f64, #[serde(default)] pub order_type: String, #[serde(default)] pub notional_usd: f64,
+    #[serde(default)] pub expires_in_s: i64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct TicketResult { #[serde(default)] pub status: String }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct RiskInfo {
@@ -1002,6 +1015,26 @@ pub async fn setup_account(account_id: String) -> Result<bool, ServerFnError> {
 pub async fn setup_logout(stop_gateway: bool) -> Result<bool, ServerFnError> {
     let _: serde_json::Value = http::send(reqwest::Method::POST, &format!("/setup/logout?stop_gateway={stop_gateway}"), &serde_json::json!({})).await?;
     Ok(true)
+}
+
+/// AI control in the top bar: read-only (write_enabled off) · ask first (on, auto_confirm off) · auto (both on)
+#[cfg(not(feature = "demo"))]
+#[post("/api/assistant/mode")]
+pub async fn set_assistant_mode(write_enabled: bool, auto_confirm: bool) -> Result<AssistantCfg, ServerFnError> {
+    http::send(reqwest::Method::PUT, "/assistant", &serde_json::json!({"write_enabled": write_enabled, "auto_confirm": auto_confirm})).await
+}
+
+#[cfg(not(feature = "demo"))]
+#[get("/api/assistant/tickets")]
+pub async fn get_assistant_tickets() -> Result<Vec<AssistantTicket>, ServerFnError> {
+    #[derive(Deserialize)] struct R { #[serde(default)] tickets: Vec<AssistantTicket> }
+    Ok(http::get::<R>("/assistant/tickets").await?.tickets)
+}
+
+#[cfg(not(feature = "demo"))]
+#[post("/api/assistant/ticket")]
+pub async fn decide_assistant_ticket(token: String, approve: bool) -> Result<TicketResult, ServerFnError> {
+    http::send(reqwest::Method::POST, &format!("/assistant/tickets/{token}/{}", if approve { "approve" } else { "reject" }), &serde_json::json!({})).await
 }
 
 #[cfg(not(feature = "demo"))]

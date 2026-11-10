@@ -22,19 +22,19 @@ async fn demo_call<T: serde::de::DeserializeOwned>(path: &str, args: serde_json:
 
 pub async fn get_ws_url() -> Result<String, ServerFnError> { demo_call("/api/ws_url", serde_json::json!({})).await }
 pub async fn get_markets() -> Result<Vec<Market>, ServerFnError> { demo_call("/api/markets", serde_json::json!({})).await }
-pub async fn get_instruments(market: String, q: String) -> Result<Vec<Instrument>, ServerFnError> { demo_call("/api/instruments", serde_json::json!({"market": market, "q": q})).await }
+pub async fn get_instruments(market: String, q: String) -> Result<Vec<Instrument>, ServerFnError> { demo_call("/api/instruments?market&q", serde_json::json!({"market": market, "q": q})).await }
 pub async fn get_watchlist() -> Result<Vec<Instrument>, ServerFnError> { demo_call("/api/watchlist", serde_json::json!({})).await }
 pub async fn add_watch(key: String) -> Result<Vec<Instrument>, ServerFnError> { demo_call("/api/watchlist/add", serde_json::json!({"key": key})).await }
 pub async fn remove_watch(key: String) -> Result<Vec<Instrument>, ServerFnError> { demo_call("/api/watchlist/remove", serde_json::json!({"key": key})).await }
 pub async fn get_quotes() -> Result<Vec<Quote>, ServerFnError> { demo_call("/api/quotes", serde_json::json!({})).await }
 pub async fn get_market() -> Result<Vec<MarketItem>, ServerFnError> { demo_call("/api/market", serde_json::json!({})).await }
-pub async fn get_bars(key: String, bar_size: String, duration: String) -> Result<BarsResp, ServerFnError> { demo_call("/api/bars", serde_json::json!({"key": key, "bar_size": bar_size, "duration": duration})).await }
+pub async fn get_bars(key: String, bar_size: String, duration: String) -> Result<BarsResp, ServerFnError> { demo_call("/api/bars?key&bar_size&duration", serde_json::json!({"key": key, "bar_size": bar_size, "duration": duration})).await }
 pub async fn get_snapshot() -> Result<Snapshot, ServerFnError> { demo_call("/api/snapshot", serde_json::json!({})).await }
 pub async fn place_order(req: OrderRequest) -> Result<OrderResult, ServerFnError> { demo_call("/api/order", serde_json::json!({"req": req})).await }
 pub async fn cancel_order(order_id: i64) -> Result<OrderResult, ServerFnError> { demo_call("/api/order/cancel", serde_json::json!({"order_id": order_id})).await }
 pub async fn close_position(key: String, force: bool) -> Result<OrderResult, ServerFnError> { demo_call("/api/position/close", serde_json::json!({"key": key, "force": force})).await }
 pub async fn set_mode(mode: String) -> Result<String, ServerFnError> { demo_call("/api/mode", serde_json::json!({"mode": mode})).await }
-pub async fn get_heatmap(group: String) -> Result<Heatmap, ServerFnError> { demo_call("/api/heatmap", serde_json::json!({"group": group})).await }
+pub async fn get_heatmap(group: String) -> Result<Heatmap, ServerFnError> { demo_call("/api/heatmap?group", serde_json::json!({"group": group})).await }
 pub async fn modify_order(order_id: i64, qty: Option<f64>, price: Option<f64>) -> Result<OrderResult, ServerFnError> { demo_call("/api/order/modify", serde_json::json!({"order_id": order_id, "qty": qty, "price": price})).await }
 pub async fn close_all_positions() -> Result<Vec<ClosedItem>, ServerFnError> { demo_call("/api/positions/close_all", serde_json::json!({})).await }
 pub async fn reverse_position(key: String) -> Result<OrderResult, ServerFnError> { demo_call("/api/position/reverse", serde_json::json!({"key": key})).await }
@@ -43,12 +43,12 @@ pub async fn put_risk(settings: RiskSettings) -> Result<RiskInfo, ServerFnError>
 pub async fn kill_switch() -> Result<bool, ServerFnError> { demo_call("/api/risk/kill", serde_json::json!({})).await }
 pub async fn confirm_daily_baseline(netliq: Option<f64>) -> Result<DailyPnl, ServerFnError> { demo_call("/api/risk/daily_baseline", serde_json::json!({"netliq": netliq})).await }
 pub async fn resume_trading() -> Result<bool, ServerFnError> { demo_call("/api/risk/resume", serde_json::json!({})).await }
-pub async fn get_audit(limit: i64) -> Result<Vec<AuditItem>, ServerFnError> { demo_call("/api/audit", serde_json::json!({"limit": limit})).await }
-pub async fn get_trades(range: String, key: String, source: String, account: String, tz: String) -> Result<Vec<Trade>, ServerFnError> { demo_call("/api/history/trades", serde_json::json!({"range": range, "key": key, "source": source, "account": account, "tz": tz})).await }
-pub async fn get_equity(range: String, account: String, tz: String) -> Result<Vec<EquityPoint>, ServerFnError> { demo_call("/api/history/equity", serde_json::json!({"range": range, "account": account, "tz": tz})).await }
-pub async fn get_stats(range: String, account: String, source: String, tz: String) -> Result<Stats, ServerFnError> { demo_call("/api/history/stats", serde_json::json!({"range": range, "account": account, "source": source, "tz": tz})).await }
+pub async fn get_audit(limit: i64) -> Result<Vec<AuditItem>, ServerFnError> { demo_call("/api/audit?limit", serde_json::json!({"limit": limit})).await }
+pub async fn get_trades(range: String, key: String, source: String, account: String, tz: String) -> Result<Vec<Trade>, ServerFnError> { demo_call("/api/history/trades?range&key&source&account&tz", serde_json::json!({"range": range, "key": key, "source": source, "account": account, "tz": tz})).await }
+pub async fn get_equity(range: String, account: String, tz: String) -> Result<Vec<EquityPoint>, ServerFnError> { demo_call("/api/history/equity?range&account&tz", serde_json::json!({"range": range, "account": account, "tz": tz})).await }
+pub async fn get_stats(range: String, account: String, source: String, tz: String) -> Result<Stats, ServerFnError> { demo_call("/api/history/stats?range&account&source&tz", serde_json::json!({"range": range, "account": account, "source": source, "tz": tz})).await }
 pub async fn set_journal(first_exec: String, note: String, tags: String, rating: i64) -> Result<bool, ServerFnError> { demo_call("/api/history/journal", serde_json::json!({"first_exec": first_exec, "note": note, "tags": tags, "rating": rating})).await }
-pub async fn get_export(what: String, range: String, account: String, tz: String) -> Result<String, ServerFnError> { demo_call("/api/history/export", serde_json::json!({"what": what, "range": range, "account": account, "tz": tz})).await }
+pub async fn get_export(what: String, range: String, account: String, tz: String) -> Result<String, ServerFnError> { demo_call("/api/history/export?what&range&account&tz", serde_json::json!({"what": what, "range": range, "account": account, "tz": tz})).await }
 pub async fn sync_databricks() -> Result<serde_json::Value, ServerFnError> { demo_call("/api/history/sync", serde_json::json!({})).await }
 pub async fn get_notify() -> Result<NotifyCfg, ServerFnError> { demo_call("/api/notify", serde_json::json!({})).await }
 pub async fn put_notify(cfg: NotifyCfg) -> Result<NotifyCfg, ServerFnError> { demo_call("/api/notify", serde_json::json!({"cfg": cfg})).await }
@@ -56,8 +56,8 @@ pub async fn notify_test() -> Result<bool, ServerFnError> { demo_call("/api/noti
 pub async fn get_alerts() -> Result<Vec<Alert>, ServerFnError> { demo_call("/api/alerts", serde_json::json!({})).await }
 pub async fn add_alert(key: String, kind: String, level: f64, note: String, repeat: bool) -> Result<Alert, ServerFnError> { demo_call("/api/alerts/add", serde_json::json!({"key": key, "kind": kind, "level": level, "note": note, "repeat": repeat})).await }
 pub async fn delete_alert(id: String) -> Result<bool, ServerFnError> { demo_call("/api/alerts/delete", serde_json::json!({"id": id})).await }
-pub async fn get_news(key: String) -> Result<Vec<NewsItem>, ServerFnError> { demo_call("/api/news", serde_json::json!({"key": key})).await }
-pub async fn get_article(provider: String, article_id: String) -> Result<String, ServerFnError> { demo_call("/api/news/article", serde_json::json!({"provider": provider, "article_id": article_id})).await }
+pub async fn get_news(key: String) -> Result<Vec<NewsItem>, ServerFnError> { demo_call("/api/news?key", serde_json::json!({"key": key})).await }
+pub async fn get_article(provider: String, article_id: String) -> Result<String, ServerFnError> { demo_call("/api/news/article?provider&article_id", serde_json::json!({"provider": provider, "article_id": article_id})).await }
 pub async fn get_calendar() -> Result<Calendar, ServerFnError> { demo_call("/api/calendar", serde_json::json!({})).await }
 pub async fn set_news_pause(minutes: i64) -> Result<i64, ServerFnError> { demo_call("/api/calendar/pause", serde_json::json!({"minutes": minutes})).await }
 pub async fn get_ui() -> Result<UiSettings, ServerFnError> { demo_call("/api/ui", serde_json::json!({})).await }
@@ -78,23 +78,26 @@ pub async fn get_setup_status() -> Result<SetupStatus, ServerFnError> { demo_cal
 pub async fn setup_login(username: String, password: String, mode: String, live_code: String) -> Result<bool, ServerFnError> { demo_call("/api/setup/login", serde_json::json!({"username": username, "password": password, "mode": mode, "live_code": live_code})).await }
 pub async fn setup_account(account_id: String) -> Result<bool, ServerFnError> { demo_call("/api/setup/account", serde_json::json!({"account_id": account_id})).await }
 pub async fn setup_logout(stop_gateway: bool) -> Result<bool, ServerFnError> { demo_call("/api/setup/logout", serde_json::json!({"stop_gateway": stop_gateway})).await }
+pub async fn set_assistant_mode(write_enabled: bool, auto_confirm: bool) -> Result<AssistantCfg, ServerFnError> { demo_call("/api/assistant/mode", serde_json::json!({"write_enabled": write_enabled, "auto_confirm": auto_confirm})).await }
+pub async fn get_assistant_tickets() -> Result<Vec<AssistantTicket>, ServerFnError> { demo_call("/api/assistant/tickets", serde_json::json!({})).await }
+pub async fn decide_assistant_ticket(token: String, approve: bool) -> Result<TicketResult, ServerFnError> { demo_call("/api/assistant/ticket", serde_json::json!({"token": token, "approve": approve})).await }
 pub async fn put_assistant(write_enabled: Option<bool>, live: Option<bool>, max_order_notional_usd: Option<f64>, max_orders_per_hour: Option<i64>, allow_short: Option<bool>, allow_agents: Option<bool>) -> Result<AssistantCfg, ServerFnError> { demo_call("/api/assistant", serde_json::json!({"write_enabled": write_enabled, "live": live, "max_order_notional_usd": max_order_notional_usd, "max_orders_per_hour": max_orders_per_hour, "allow_short": allow_short, "allow_agents": allow_agents})).await }
 pub async fn probe_markets() -> Result<Vec<ProbeResult>, ServerFnError> { demo_call("/api/risk/markets/probe", serde_json::json!({})).await }
 pub async fn set_market_tradable(market: String, tradable: bool) -> Result<bool, ServerFnError> { demo_call("/api/risk/markets", serde_json::json!({"market": market, "tradable": tradable})).await }
 pub async fn get_bt_reports() -> Result<Vec<BtReport>, ServerFnError> { demo_call("/api/backtests", serde_json::json!({})).await }
-pub async fn get_bt_report(kind: String, file: String) -> Result<String, ServerFnError> { demo_call("/api/backtests/report", serde_json::json!({"kind": kind, "file": file})).await }
+pub async fn get_bt_report(kind: String, file: String) -> Result<String, ServerFnError> { demo_call("/api/backtests/report?kind&file", serde_json::json!({"kind": kind, "file": file})).await }
 pub async fn get_nodes() -> Result<NodesResp, ServerFnError> { demo_call("/api/nodes", serde_json::json!({})).await }
 pub async fn save_node(id: String, name: String, config_file: String, overrides: String, auto_restart: bool) -> Result<NodeInfo, ServerFnError> { demo_call("/api/nodes/save", serde_json::json!({"id": id, "name": name, "config_file": config_file, "overrides": overrides, "auto_restart": auto_restart})).await }
 pub async fn node_action(id: String, action: String) -> Result<String, ServerFnError> { demo_call("/api/nodes/action", serde_json::json!({"id": id, "action": action})).await }
-pub async fn get_node_log(id: String, level: String) -> Result<Vec<String>, ServerFnError> { demo_call("/api/nodes/log", serde_json::json!({"id": id, "level": level})).await }
-pub async fn get_node_events(node: String, types: String) -> Result<String, ServerFnError> { demo_call("/api/events", serde_json::json!({"node": node, "types": types})).await }
+pub async fn get_node_log(id: String, level: String) -> Result<Vec<String>, ServerFnError> { demo_call("/api/nodes/log?id&level", serde_json::json!({"id": id, "level": level})).await }
+pub async fn get_node_events(node: String, types: String) -> Result<String, ServerFnError> { demo_call("/api/events?node&types", serde_json::json!({"node": node, "types": types})).await }
 pub async fn get_strategies() -> Result<String, ServerFnError> { demo_call("/api/strategies", serde_json::json!({})).await }
 pub async fn save_strategy(file: String, config: String, overwrite: bool) -> Result<String, ServerFnError> { demo_call("/api/strategies/save", serde_json::json!({"file": file, "config": config, "overwrite": overwrite})).await }
 pub async fn delete_strategy(file: String) -> Result<bool, ServerFnError> { demo_call("/api/strategies/delete", serde_json::json!({"file": file})).await }
 pub async fn run_strategy_job(file: String, kind: String, opts: String) -> Result<String, ServerFnError> { demo_call("/api/strategies/run", serde_json::json!({"file": file, "kind": kind, "opts": opts})).await }
-pub async fn get_strategy_job(id: String) -> Result<String, ServerFnError> { demo_call("/api/strategies/job", serde_json::json!({"id": id})).await }
+pub async fn get_strategy_job(id: String) -> Result<String, ServerFnError> { demo_call("/api/strategies/job?id", serde_json::json!({"id": id})).await }
 pub async fn cancel_strategy_job(id: String) -> Result<bool, ServerFnError> { demo_call("/api/strategies/job/cancel", serde_json::json!({"id": id})).await }
-pub async fn get_deploy_check(file: String) -> Result<Vec<String>, ServerFnError> { demo_call("/api/strategies/deploy_check", serde_json::json!({"file": file})).await }
+pub async fn get_deploy_check(file: String) -> Result<Vec<String>, ServerFnError> { demo_call("/api/strategies/deploy_check?file", serde_json::json!({"file": file})).await }
 pub async fn deploy_strategy(file: String, name: String, auto_restart: bool, start: bool, force: bool) -> Result<String, ServerFnError> { demo_call("/api/strategies/deploy", serde_json::json!({"file": file, "name": name, "auto_restart": auto_restart, "start": start, "force": force})).await }
 pub async fn get_packages() -> Result<String, ServerFnError> { demo_call("/api/packages", serde_json::json!({})).await }
 pub async fn install_package(source: String, force: bool) -> Result<String, ServerFnError> { demo_call("/api/packages/install", serde_json::json!({"source": source, "force": force})).await }
@@ -110,12 +113,12 @@ pub async fn release_hold(id: String) -> Result<String, ServerFnError> { demo_ca
 pub async fn get_cloud_status() -> Result<String, ServerFnError> { demo_call("/api/cloud/status", serde_json::json!({})).await }
 pub async fn cloud_action(what: String, arg: String) -> Result<String, ServerFnError> { demo_call("/api/cloud/action", serde_json::json!({"what": what, "arg": arg})).await }
 pub async fn get_store() -> Result<String, ServerFnError> { demo_call("/api/cloud/store", serde_json::json!({})).await }
-pub async fn get_store_detail(slug: String) -> Result<String, ServerFnError> { demo_call("/api/cloud/store/detail", serde_json::json!({"slug": slug})).await }
+pub async fn get_store_detail(slug: String) -> Result<String, ServerFnError> { demo_call("/api/cloud/store/detail?slug", serde_json::json!({"slug": slug})).await }
 pub async fn store_install(slug: String, version: String) -> Result<String, ServerFnError> { demo_call("/api/cloud/store/install", serde_json::json!({"slug": slug, "version": version})).await }
 pub async fn billing_action(what: String, arg: String) -> Result<String, ServerFnError> { demo_call("/api/cloud/billing", serde_json::json!({"what": what, "arg": arg})).await }
-pub async fn get_live_readiness(node: String) -> Result<String, ServerFnError> { demo_call("/api/live/readiness", serde_json::json!({"node": node})).await }
+pub async fn get_live_readiness(node: String) -> Result<String, ServerFnError> { demo_call("/api/live/readiness?node", serde_json::json!({"node": node})).await }
 pub async fn get_soak() -> Result<SoakResp, ServerFnError> { demo_call("/api/soak", serde_json::json!({})).await }
-pub async fn get_soak_detail(id: String) -> Result<SoakNode, ServerFnError> { demo_call("/api/soak/detail", serde_json::json!({"id": id})).await }
+pub async fn get_soak_detail(id: String) -> Result<SoakNode, ServerFnError> { demo_call("/api/soak/detail?id", serde_json::json!({"id": id})).await }
 pub async fn soak_parity(id: String) -> Result<serde_json::Value, ServerFnError> { demo_call("/api/soak/parity", serde_json::json!({"id": id})).await }
 pub async fn soak_reset(id: String) -> Result<serde_json::Value, ServerFnError> { demo_call("/api/soak/reset", serde_json::json!({"id": id})).await }
-pub async fn get_node_summary(id: String, range: String, tz: String) -> Result<NodeSummary, ServerFnError> { demo_call("/api/nodes/summary", serde_json::json!({"id": id, "range": range, "tz": tz})).await }
+pub async fn get_node_summary(id: String, range: String, tz: String) -> Result<NodeSummary, ServerFnError> { demo_call("/api/nodes/summary?id&range&tz", serde_json::json!({"id": id, "range": range, "tz": tz})).await }

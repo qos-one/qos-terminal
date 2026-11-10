@@ -479,6 +479,19 @@ html, body { overflow: hidden; max-width: 100%; }
 .asst-chip { border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: 10px; font-weight: 700; padding: 3px 9px; cursor: pointer; white-space: nowrap; }
 .asst-chip.on { color: var(--up); border-color: rgba(46,229,122,.45); background: rgba(46,229,122,.10); }
 .asst-chip:disabled { cursor: default; }
+.asst-menu { position: relative; }
+.asst-chip { display: inline-flex; align-items: center; gap: 5px; }
+.asst-chip .asst-ico { flex: 0 0 auto; }
+.asst-chip .asst-mode { font-weight: 600; opacity: .85; }
+.asst-chip.ask { color: #f5b942; border-color: rgba(245,185,66,.45); background: rgba(245,185,66,.10); }
+.asst-badge { min-width: 15px; height: 15px; padding: 0 4px; border-radius: 999px; background: #f5b942; color: #10102a; font-size: 9.5px; line-height: 15px; text-align: center; animation: asst-pulse 1.4s ease-in-out infinite; }
+@keyframes asst-pulse { 50% { opacity: .45; } }
+.asst-dd { min-width: 300px; }
+.asst-dd .asst-opt { flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; white-space: normal; }
+.asst-dd .asst-opt .muted.small { padding: 0; }
+.asst-dd .asst-opt:disabled { opacity: .6; cursor: default; }
+.asst-tk { display: flex; align-items: center; gap: 8px; padding: 5px 8px; flex-wrap: wrap; }
+.asst-note { padding: 2px 8px 4px; white-space: normal; line-height: 1.4; }
 input.short.wide { width: 90px; }
 .daily { min-width: 150px; flex-shrink: 0; margin-right: 6px; }
 .hdr-stats { flex-shrink: 1; min-width: 0; overflow: hidden; }

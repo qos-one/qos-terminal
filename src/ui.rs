@@ -89,7 +89,7 @@ pub fn merge_snapshot(prev: Option<&Snapshot>, mut s: Snapshot, has_reconcile: b
 
 /// Action that runs only after the user confirms it in ConfirmDialog
 #[derive(Clone, Debug, PartialEq)]
-pub enum ConfirmAction { Kill, ClosePos(String, bool), Reverse(String), NodeStop(String), MoveOrder { id: i64, from: f64, to: f64, pane: usize }, CancelOrder(i64), ModifyOrder { id: i64, qty: Option<f64>, price: Option<f64> }, ConfirmBaseline(Option<f64>) }
+pub enum ConfirmAction { Kill, ClosePos(String, bool), Reverse(String), NodeStop(String), MoveOrder { id: i64, from: f64, to: f64, pane: usize }, CancelOrder(i64), ModifyOrder { id: i64, qty: Option<f64>, price: Option<f64> }, ConfirmBaseline(Option<f64>), ApproveTicket(String) }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ConfirmReq { pub title: String, pub body: String, pub ok_label: String, pub action: ConfirmAction }
@@ -888,6 +888,17 @@ fn handle_ws(st: &mut State, m: serde_json::Value) {
             st.toast.set(Some((ok, text)));
             st.refresh_tick += 1;
         }
+        "assistant_ticket" => {
+            // AI "Ask first": an order from the assistant waits for the operator. Ask now unless another dialog is open
+            // (it stays in the AI menu of the top bar either way)
+            let text = m.get("text").and_then(|x| x.as_str()).unwrap_or("AI assistant order waiting for approval").to_string();
+            let token = m.get("ticket").and_then(|t| t.get("token")).and_then(|x| x.as_str()).unwrap_or("").to_string();
+            st.notify("alert", text.clone());
+            if !token.is_empty() && st.is_admin() && st.confirm.peek().is_none() {
+                st.ask("Approve the AI's order?", format!("{text}\n\nCancel leaves it waiting in the AI menu (top bar) for 5 minutes."), "Approve & send", ConfirmAction::ApproveTicket(token));
+            }
+            st.refresh_tick += 1;
+        }
         "assistant_action" => {
             let text = m.get("text").and_then(|x| x.as_str()).unwrap_or("AI assistant action").to_string();
             st.notify("alert", text);
@@ -1259,6 +1270,10 @@ async fn run_confirmed(mut st: State, action: ConfirmAction) {
         ConfirmAction::CancelOrder(id) => match cancel_order(id).await {
             Ok(_) => st.toast.set(Some((true, format!("Cancelled order {id}")))),
             Err(e) => st.toast.set(Some((false, format!("Cancel failed: {e}")))),
+        },
+        ConfirmAction::ApproveTicket(token) => match decide_assistant_ticket(token, true).await {
+            Ok(r) => st.toast.set(Some((true, format!("AI order approved: {}", r.status)))),
+            Err(e) => st.toast.set(Some((false, format!("AI order not sent: {e}")))),
         },
     }
     if let Ok(r) = get_risk().await { st.risk.set(Some(r)); }
@@ -3684,7 +3699,7 @@ fn AssistantSettings() -> Element {
     };
     rsx! {
         div { class: "sec-row",
-            label { class: "chk", input { r#type: "checkbox", checked: a.write_enabled, oninput: move |e| apply(Some(e.checked()), None, None, None, false) } span { b { "Allow the assistant to trade" } " (off = read-only)" } }
+            label { class: "chk", input { r#type: "checkbox", checked: a.write_enabled, oninput: move |e| apply(Some(e.checked()), None, None, None, false) } span { b { "Allow the assistant to place orders" } " (off = read-only; Ask first / Auto: top bar → AI)" } }
             label { class: "chk", input { r#type: "checkbox", checked: a.live, oninput: move |e| apply(None, Some(e.checked()), None, None, false) } span { "…also on live accounts" } }
             label { class: "chk", input { r#type: "checkbox", checked: a.allow_short, oninput: move |e| apply(None, None, Some(e.checked()), None, false) } span { "Allow short" } }
         }
@@ -3695,7 +3710,7 @@ fn AssistantSettings() -> Element {
             span { class: "muted small", "{a.orders_last_hour} orders in the last hour" }
             if !a.operator_exists { span { class: "tag peach xs", "create an operator with role 'assistant' below and put its PIN in bot/.env" } }
         }
-        p { class: "muted xs", "Every assistant order is two-step (prepare → confirm) and logged with source and request id. Setup: see bot/README.md → MCP." }
+        p { class: "muted xs", "Every assistant order is two-step (prepare → confirm) and logged with source and request id. With Ask first you approve each order in the top bar (AI). Optional and experimental: AI can make mistakes; you are responsible for every order it places." }
         if !msg.read().is_empty() { div { class: "notice", "{msg}" } }
     }
 }
@@ -4294,22 +4309,93 @@ pub fn LoginScreen() -> Element {
 
 fn gateways_need_live_code(s: &SetupStatus) -> bool { s.gateways.iter().any(|g| g.mode == "live") }
 
-/// AI assistant (MCP) status: read-only / trading — admin can toggle it
+/// AI assistant (MCP) control in the top bar: Read-only · Ask first (the operator approves each order) · Auto.
+/// Admins choose the mode from the menu; orders waiting for approval are listed there.
 #[component]
 fn AssistantChip() -> Element {
     let mut st = app_state();
+    let mut open = use_signal(|| false);
+    let mut tickets = use_signal(Vec::<AssistantTicket>::new);
     let a = st.risk.read().as_ref().map(|r| r.assistant.clone()).unwrap_or_default();
     let admin = st.is_admin();
-    let (cls, label, state) = if a.write_enabled { if a.live { ("asst-chip on live", "AI LIVE", "trading (LIVE)") } else { ("asst-chip on", "AI", "trading (paper)") } } else { ("asst-chip", "AI", "read-only") };
-    let title = format!("AI assistant (MCP): {state} · {} orders in the last hour · limit {} USD/order{}", a.orders_last_hour, a.max_order_notional_usd, if admin { " · click to toggle" } else { "" });
-    let on_now = a.write_enabled;
+    let mode = if !a.write_enabled { 0 } else if !a.auto_confirm { 1 } else { 2 };
+    let tick = *st.refresh_tick.read();
+    use_effect(use_reactive!(|(tick, mode)| {
+        let _ = tick;
+        if mode == 1 { spawn(async move { if let Ok(t) = get_assistant_tickets().await { tickets.set(t); } }); }
+        else if !tickets.peek().is_empty() { tickets.set(Vec::new()); }
+    }));
+    let waiting = tickets.read().clone();
+    let (cls, label) = match (mode, a.live) {
+        (0, _) => ("asst-chip", "Read-only"),
+        (1, false) => ("asst-chip ask", "Ask first"),
+        (1, true) => ("asst-chip ask live", "Ask first · LIVE"),
+        (_, false) => ("asst-chip on", "Auto"),
+        (_, true) => ("asst-chip on live", "Auto · LIVE"),
+    };
+    let title = format!("AI assistant (MCP): {label} · {} orders in the last hour · limit {} USD/order{}", a.orders_last_hour, a.max_order_notional_usd, if admin { " · click to change" } else { "" });
+    let mut set_mode = move |w: bool, auto: bool, msg: &'static str| {
+        open.set(false);
+        spawn(async move { match set_assistant_mode(w, auto).await {
+            Ok(_) => { if let Ok(r) = get_risk().await { st.risk.set(Some(r)); } st.notify("info", msg); }
+            Err(e) => st.toast.set(Some((false, format!("Failed: {e}")))) } });
+    };
+    let decide = move |token: String, approve: bool| {
+        spawn(async move {
+            match decide_assistant_ticket(token, approve).await {
+                Ok(r) => st.toast.set(Some((approve, if approve { format!("AI order approved: {}", r.status) } else { "AI order rejected".to_string() }))),
+                Err(e) => st.toast.set(Some((false, format!("Failed: {e}")))),
+            }
+            if let Ok(t) = get_assistant_tickets().await { tickets.set(t); }
+            st.refresh_tick += 1;
+        });
+    };
     rsx! {
-        button { class: "{cls}", title: "{title}", disabled: !admin, onclick: move |_| {
-            let on = !on_now;
-            spawn(async move { match put_assistant(Some(on), None, None, None, None, None).await {
-                Ok(_) => { if let Ok(r) = get_risk().await { st.risk.set(Some(r)); } st.notify("info", if on { "AI assistant trading enabled" } else { "AI assistant set to read-only" }); }
-                Err(e) => st.toast.set(Some((false, format!("Failed: {e}")))) } });
-        }, "{label}" }
+        div { class: "asst-menu",
+            button { class: "{cls}", title: "{title}", onclick: move |_| { let v = !*open.peek(); open.set(v); },
+                svg { class: "asst-ico", view_box: "0 0 24 24", width: "13", height: "13", fill: "none", stroke: "currentColor", "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round",
+                    path { d: "M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9L12 3z" }
+                    path { d: "M19 15l.8 1.9 1.9.8-1.9.8L19 20.4l-.8-1.9-1.9-.8 1.9-.8L19 15z" }
+                }
+                span { "AI" } span { class: "asst-mode", "{label}" }
+                if !waiting.is_empty() { span { class: "asst-badge", "{waiting.len()}" } }
+            }
+            if *open.read() {
+                div { class: "ctx-bg", onclick: move |_| open.set(false) }
+                div { class: "acct-dd asst-dd",
+                    div { class: "muted small", "AI assistant (MCP) · what may it do?" }
+                    button { class: if mode == 0 { "ctx-item asst-opt sel" } else { "ctx-item asst-opt" }, disabled: !admin, onclick: move |_| set_mode(false, false, "AI assistant: read-only"),
+                        b { "Read-only" } span { class: "muted small", "It can read the account. It cannot place orders." } }
+                    button { class: if mode == 1 { "ctx-item asst-opt sel" } else { "ctx-item asst-opt" }, disabled: !admin, onclick: move |_| set_mode(true, false, "AI assistant: ask first — you approve each order"),
+                        b { "Ask first" } span { class: "muted small", "It prepares orders. You approve each one here." } }
+                    button { class: if mode == 2 { "ctx-item asst-opt sel" } else { "ctx-item asst-opt" }, disabled: !admin, onclick: move |_| set_mode(true, true, "AI assistant: auto — it confirms its own orders"),
+                        b { "Auto" } span { class: "muted small", "It confirms its own orders without asking you." } }
+                    if !waiting.is_empty() {
+                        div { class: "ctx-sep" }
+                        div { class: "muted small", "Waiting for your approval" }
+                        for t in waiting {
+                            {
+                                let (tok_a, tok_r) = (t.token.clone(), t.token.clone());
+                                let mut decide_a = decide.clone();
+                                let mut decide_r = decide.clone();
+                                rsx! {
+                                    div { class: "asst-tk",
+                                        span { class: if t.side == "BUY" { "text-up" } else { "text-down" }, b { "{t.side}" } }
+                                        span { class: "num", "{qty_fmt(t.qty)} {t.key}" }
+                                        span { class: "muted small num", "≈ {money(t.notional_usd)} · {t.expires_in_s}s" }
+                                        button { class: "mini", disabled: !admin, onclick: move |_| decide_a(tok_a.clone(), true), "Approve" }
+                                        button { class: "mini danger", disabled: !admin, onclick: move |_| decide_r(tok_r.clone(), false), "Reject" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    div { class: "ctx-sep" }
+                    div { class: "muted xs asst-note", "Optional and experimental. AI can make mistakes; you are responsible for every order it places. Limits: Risk → AI assistant." }
+                    if !admin { div { class: "muted xs asst-note", "Only an admin can change this." } }
+                }
+            }
+        }
     }
 }
 
