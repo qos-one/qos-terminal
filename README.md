@@ -42,7 +42,9 @@ The web server listens on `127.0.0.1` and `PORT` (8080 if unset). A non-loopback
 set `QOS_TERMINAL_BIND` to listen on another address. The `Host` must be a loopback name, or a host
 listed in `QOS_TRUSTED_ORIGINS` or `QOS_TERMINAL_HOST`. For the HTTPS terminal, put the site origin
 in `QOS_TRUSTED_ORIGINS` (the service reads `/srv/qos/terminal.env`). `POST`, `PUT`, `PATCH`, and
-`DELETE` must be from that same origin and include the `qos_csrf` cookie set by the page.
+`DELETE` must include the `qos_csrf` cookie set by the page and come from that same origin
+(`http` on loopback, `https` on a configured public host). The desktop app sends no `Origin`;
+a loopback request with the cookie and no `Origin`, `Referer`, or `Sec-Fetch-Site` is accepted.
 
 ## Layout
 

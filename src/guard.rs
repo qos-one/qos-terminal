@@ -3,8 +3,9 @@
 //! The server proxies browser calls to the engine and may attach the local token.
 //! It listens on loopback unless `QOS_TERMINAL_BIND` says otherwise, and it answers
 //! a request only when the `Host` is loopback or listed in `QOS_TRUSTED_ORIGINS` /
-//! `QOS_TERMINAL_HOST`. `POST`, `PUT`, `PATCH`, and `DELETE` must also be from that
-//! same origin and carry this process's `qos_csrf` cookie.
+//! `QOS_TERMINAL_HOST`. `POST`, `PUT`, `PATCH`, and `DELETE` must carry this process's
+//! `qos_csrf` cookie and a matching origin (`http` on loopback, `https` on a public host).
+//! The desktop client sends no `Origin`; a loopback request with only the cookie is accepted.
 
 use std::collections::HashSet;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -51,7 +52,7 @@ pub fn trusted_hosts() -> HashSet<String> {
         for part in raw.split([',', ' ']) {
             let part = part.trim();
             if part.is_empty() { continue; }
-            let host = origin_host(part).map(|(h, _)| h).or_else(|| host_key(part).map(|(h, _)| h));
+            let host = parse_origin(part).map(|o| o.host).or_else(|| host_key(part).map(|(h, _)| h));
             if let Some(host) = host { hosts.insert(host); }
         }
     }
@@ -81,12 +82,15 @@ fn host_key(value: &str) -> Option<(String, Option<u16>)> {
     Some((value.to_ascii_lowercase(), None))
 }
 
-/// Origin or absolute URL → (lowercase host, port).
-fn origin_host(value: &str) -> Option<(String, u16)> {
+struct ParsedOrigin { scheme: String, host: String, port: u16 }
+
+/// Origin or absolute URL. `http` defaults to port 80, `https` to 443.
+fn parse_origin(value: &str) -> Option<ParsedOrigin> {
     let value = value.trim();
     if value.is_empty() || value.eq_ignore_ascii_case("null") { return None; }
     let (scheme, rest) = value.split_once("://")?;
-    let default_port = match scheme.to_ascii_lowercase().as_str() {
+    let scheme = scheme.to_ascii_lowercase();
+    let default_port = match scheme.as_str() {
         "http" => 80u16,
         "https" => 443u16,
         _ => return None,
@@ -94,16 +98,23 @@ fn origin_host(value: &str) -> Option<(String, u16)> {
     let rest = rest.split(['/', '?', '#']).next().unwrap_or("");
     let rest = rest.rsplit('@').next().unwrap_or("");
     let (host, port) = host_key(rest)?;
-    Some((host, port.unwrap_or(default_port)))
+    Some(ParsedOrigin { scheme, host, port: port.unwrap_or(default_port) })
 }
 
+fn is_loopback_host(host: &str) -> bool {
+    matches!(host, "localhost" | "127.0.0.1" | "::1")
+}
+
+/// Host and Origin/Referer name the same site. Loopback is `http`; a configured public host is `https`.
 fn same_origin(host_header: &str, origin: &str) -> bool {
     let Some((host, host_port)) = host_key(host_header) else { return false };
-    let Some((origin_host, origin_port)) = origin_host(origin) else { return false };
-    if host != origin_host { return false; }
+    let Some(origin) = parse_origin(origin) else { return false };
+    if host != origin.host { return false; }
+    let scheme_ok = if is_loopback_host(&host) { origin.scheme == "http" } else { origin.scheme == "https" };
+    if !scheme_ok { return false; }
     match host_port {
-        Some(port) => port == origin_port,
-        None => origin_port == 80 || origin_port == 443,
+        Some(port) => port == origin.port,
+        None => origin.port == if origin.scheme == "https" { 443 } else { 80 },
     }
 }
 
@@ -138,16 +149,25 @@ pub fn decide(method: &Method, headers: &HeaderMap, csrf: &str, hosts: &HashSet<
         }
         return Ok(());
     }
-    if let Some(site) = header_str(headers, "sec-fetch-site") {
-        if !site.eq_ignore_ascii_case("same-origin") && !site.eq_ignore_ascii_case("none") {
-            return Err(());
+    let origin = header_str(headers, "origin");
+    let referer = header_str(headers, "referer");
+    let site = header_str(headers, "sec-fetch-site");
+    // The desktop app calls this server with reqwest: a loopback Host, the cookie jar, and none of
+    // Origin, Referer, or Sec-Fetch-Site. A browser request sends at least one of those.
+    if origin.is_none() && referer.is_none() && site.is_none() {
+        if !is_loopback_host(&name) { return Err(()); }
+    } else {
+        if let Some(site) = site {
+            if !site.eq_ignore_ascii_case("same-origin") && !site.eq_ignore_ascii_case("none") {
+                return Err(());
+            }
         }
-    }
-    match header_str(headers, "origin") {
-        Some(origin) => { if !same_origin(host, origin) { return Err(()); } }
-        None => {
-            let referer = header_str(headers, "referer").ok_or(())?;
-            if !same_origin(host, referer) { return Err(()); }
+        match origin {
+            Some(origin) => { if !same_origin(host, origin) { return Err(()); } }
+            None => {
+                let referer = referer.ok_or(())?;
+                if !same_origin(host, referer) { return Err(()); }
+            }
         }
     }
     let cookie = header_str(headers, "cookie").unwrap_or("");
@@ -369,6 +389,29 @@ mod tests {
             ("cookie", "qos_csrf=unit-csrf-token"),
         ]);
         assert!(decide(&Method::POST, &null_origin, csrf, &hosts).is_err());
+
+        // Desktop / dx serve: reqwest sends the cookie and a loopback Host, and no browser headers.
+        let desktop = headers(&[("host", "127.0.0.1:8080"), ("cookie", "qos_csrf=unit-csrf-token")]);
+        for method in [Method::POST, Method::PUT, Method::DELETE] {
+            assert!(decide(&method, &desktop, csrf, &hosts).is_ok());
+        }
+        let desktop_bad_cookie = headers(&[("host", "127.0.0.1:8080"), ("cookie", "qos_csrf=other")]);
+        assert!(decide(&Method::POST, &desktop_bad_cookie, csrf, &hosts).is_err());
+        let desktop_no_cookie = headers(&[("host", "localhost:8080")]);
+        assert!(decide(&Method::POST, &desktop_no_cookie, csrf, &hosts).is_err());
+        // A browser header is present, so the desktop exception does not apply.
+        let site_only = headers(&[
+            ("host", "127.0.0.1:8080"),
+            ("cookie", "qos_csrf=unit-csrf-token"),
+            ("sec-fetch-site", "same-origin"),
+        ]);
+        assert!(decide(&Method::POST, &site_only, csrf, &hosts).is_err());
+        let cross_site_only = headers(&[
+            ("host", "127.0.0.1:8080"),
+            ("cookie", "qos_csrf=unit-csrf-token"),
+            ("sec-fetch-site", "cross-site"),
+        ]);
+        assert!(decide(&Method::POST, &cross_site_only, csrf, &hosts).is_err());
     }
 
     #[test]
@@ -389,6 +432,32 @@ mod tests {
             ("cookie", "qos_csrf=unit-csrf-token"),
         ]);
         assert!(decide(&Method::POST, &other, csrf, &hosts).is_err());
+        // No port on Host: scheme has to match (http on loopback, https on a public host).
+        let http_public = headers(&[
+            ("host", "terminal.example.com"),
+            ("origin", "http://terminal.example.com"),
+            ("cookie", "qos_csrf=unit-csrf-token"),
+        ]);
+        assert!(decide(&Method::POST, &http_public, csrf, &hosts).is_err());
+        let https_loopback = headers(&[
+            ("host", "127.0.0.1"),
+            ("origin", "https://127.0.0.1"),
+            ("cookie", "qos_csrf=unit-csrf-token"),
+        ]);
+        assert!(decide(&Method::GET, &https_loopback, csrf, &hosts).is_err());
+        assert!(decide(&Method::POST, &https_loopback, csrf, &hosts).is_err());
+        let https_loopback_port = headers(&[
+            ("host", "127.0.0.1:8080"),
+            ("origin", "https://127.0.0.1:8080"),
+            ("cookie", "qos_csrf=unit-csrf-token"),
+        ]);
+        assert!(decide(&Method::POST, &https_loopback_port, csrf, &hosts).is_err());
+        // No browser headers on a public host is not the desktop client.
+        let bare_public = headers(&[
+            ("host", "terminal.example.com"),
+            ("cookie", "qos_csrf=unit-csrf-token"),
+        ]);
+        assert!(decide(&Method::POST, &bare_public, csrf, &hosts).is_err());
     }
 
     #[test]
