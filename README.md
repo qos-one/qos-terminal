@@ -38,6 +38,12 @@ On a personal machine with no operator, the Terminal sends the engine's local ad
 (mode 0600) at install and on first start. For an engine on another computer, copy the file
 and set `QOS_LOCAL_TOKEN_FILE` to the copy.
 
+The web server listens on `127.0.0.1` and `PORT` (8080 if unset). A non-loopback `IP` is ignored;
+set `QOS_TERMINAL_BIND` to listen on another address. The `Host` must be a loopback name, or a host
+listed in `QOS_TRUSTED_ORIGINS` or `QOS_TERMINAL_HOST`. For the HTTPS terminal, put the site origin
+in `QOS_TRUSTED_ORIGINS` (the service reads `/srv/qos/terminal.env`). `POST`, `PUT`, `PATCH`, and
+`DELETE` must be from that same origin and include the `qos_csrf` cookie set by the page.
+
 ## Layout
 
 | Path | What it is |
@@ -45,6 +51,7 @@ and set `QOS_LOCAL_TOKEN_FILE` to the copy.
 | `src/app.rs` | App shell, routing and top bar |
 | `src/ui.rs` | Screens and components |
 | `src/api.rs` | Server functions that call the QOS engine API |
+| `src/guard.rs` | Loopback bind and checks on inbound requests |
 | `assets/` | Styles, chart code and icons |
 | `demo/` | Browser build of the Terminal on simulated data (the live demo) — see `demo/README.md` |
 

@@ -2,10 +2,13 @@ mod api;
 mod calc;
 mod app;
 mod ui;
+#[cfg(feature = "server")]
+mod guard;
 
 #[cfg(feature = "desktop")]
 use dioxus::prelude::*;
 
+#[cfg(not(all(not(feature = "desktop"), feature = "server")))]
 use app::App;
 
 /// macOS: set the Dock icon at runtime and copy icon.icns into the .app bundle dx builds (Info.plist references it but dx serve does not copy it)
@@ -56,7 +59,9 @@ fn main() {
             .with_cfg(desktop!(cfg))
             .launch(App);
     }
-    #[cfg(not(feature = "desktop"))]
+    #[cfg(all(not(feature = "desktop"), feature = "server"))]
+    crate::guard::serve();
+    #[cfg(all(not(feature = "desktop"), not(feature = "server")))]
     dioxus::launch(App);
 }
 

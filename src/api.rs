@@ -299,7 +299,11 @@ mod http {
         }
         h
     }
+    fn gate() -> Result<(), ServerFnError> {
+        crate::guard::allow_current().map_err(|_| ServerFnError::new("forbidden"))
+    }
     pub fn client() -> Result<reqwest::Client, ServerFnError> {
+        gate()?;
         reqwest::Client::builder().timeout(std::time::Duration::from_secs(15)).default_headers(auth_headers()).build()
             .map_err(|e| ServerFnError::new(e.to_string()))
     }
@@ -315,6 +319,7 @@ mod http {
         r.json().await.map_err(|e| ServerFnError::new(e.to_string()))
     }
     pub async fn get_slow<T: serde::de::DeserializeOwned>(path: &str) -> Result<T, ServerFnError> {
+        gate()?;
         let c = reqwest::Client::builder().timeout(std::time::Duration::from_secs(90)).default_headers(auth_headers()).build()
             .map_err(|e| ServerFnError::new(e.to_string()))?;
         let r = c.get(format!("{}{}", base(), path)).send().await
@@ -337,6 +342,7 @@ mod http {
     }
 
     pub async fn send_timeout<B: Serialize, T: serde::de::DeserializeOwned>(method: reqwest::Method, path: &str, body: &B, secs: u64) -> Result<T, ServerFnError> {
+        gate()?;
         let c = reqwest::Client::builder().timeout(std::time::Duration::from_secs(secs)).default_headers(auth_headers()).build()
             .map_err(|e| ServerFnError::new(e.to_string()))?;
         let r = c.request(method, format!("{}{}", base(), path)).json(body).send().await
@@ -523,6 +529,25 @@ mod http {
             assert!(lower.contains("\r\nx-operator-token: wire-operator\r\n"), "operator token header was not sent");
             drop(env);
             let _ = std::fs::remove_dir_all(&dir);
+        }
+
+        #[test]
+        fn client_refuses_a_cross_origin_post_before_calling_the_engine() {
+            let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("runtime");
+            rt.block_on(async {
+                let (parts, _) = dioxus::server::http::Request::builder()
+                    .method("POST")
+                    .uri("/api/order")
+                    .header("host", "127.0.0.1:8080")
+                    .header("origin", "https://evil.example")
+                    .body(())
+                    .unwrap()
+                    .into_parts();
+                dioxus::fullstack::FullstackContext::new(parts).scope(async {
+                    let err = client().err().expect("cross-origin post should be refused");
+                    assert!(err.to_string().contains("forbidden"));
+                }).await;
+            });
         }
     }
 }
