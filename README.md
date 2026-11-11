@@ -32,6 +32,12 @@ dx serve --platform desktop               # or a desktop window, for development
 The Terminal connects to the engine at `http://127.0.0.1:8000` by default (for a remote engine,
 through an SSH tunnel). Set `BOT_API` to use another address.
 
+On a personal machine with no operator, the Terminal sends the engine's local admin token
+(`X-QOS-Local-Token`). It reads `QOS_LOCAL_TOKEN_FILE`, otherwise `QOS_DATA_DIR/local_token`,
+`QOS_HOME/data/local_token`, or `~/trading/data/local_token`. The engine creates that file
+(mode 0600) at install and on first start. For an engine on another computer, copy the file
+and set `QOS_LOCAL_TOKEN_FILE` to the copy.
+
 ## Layout
 
 | Path | What it is |

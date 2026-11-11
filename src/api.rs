@@ -272,10 +272,35 @@ mod http {
             *t = tok.to_string();
         }
     }
-    pub fn client() -> Result<reqwest::Client, ServerFnError> {
+    /// Personal machine, no operator yet. Same file the engine writes (mode 0600).
+    /// QOS_LOCAL_TOKEN_FILE, else QOS_DATA_DIR/local_token, else QOS_HOME/data/local_token,
+    /// else ~/trading/data/local_token. Missing file → no header (the engine then stays read-only).
+    fn local_token_path() -> Option<std::path::PathBuf> {
+        let nonempty = |key: &str| std::env::var(key).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        if let Some(p) = nonempty("QOS_LOCAL_TOKEN_FILE") { return Some(std::path::PathBuf::from(p)); }
+        if let Some(d) = nonempty("QOS_DATA_DIR") { return Some(std::path::PathBuf::from(d).join("local_token")); }
+        if let Some(h) = nonempty("QOS_HOME") { return Some(std::path::PathBuf::from(h).join("data").join("local_token")); }
+        let home = nonempty("HOME")?;
+        Some(std::path::PathBuf::from(home).join("trading").join("data").join("local_token"))
+    }
+    fn auth_headers() -> reqwest::header::HeaderMap {
         let mut h = reqwest::header::HeaderMap::new();
         if let Ok(v) = reqwest::header::HeaderValue::from_str(&token()) { h.insert("x-operator-token", v); }
-        reqwest::Client::builder().timeout(std::time::Duration::from_secs(15)).default_headers(h).build()
+        if let Some(path) = local_token_path() {
+            if let Ok(text) = std::fs::read_to_string(path) {
+                let tok = text.trim();
+                if !tok.is_empty() {
+                    if let Ok(mut v) = reqwest::header::HeaderValue::from_str(tok) {
+                        v.set_sensitive(true);
+                        h.insert("x-qos-local-token", v);
+                    }
+                }
+            }
+        }
+        h
+    }
+    pub fn client() -> Result<reqwest::Client, ServerFnError> {
+        reqwest::Client::builder().timeout(std::time::Duration::from_secs(15)).default_headers(auth_headers()).build()
             .map_err(|e| ServerFnError::new(e.to_string()))
     }
     async fn handle<T: serde::de::DeserializeOwned>(r: reqwest::Response) -> Result<T, ServerFnError> {
@@ -290,9 +315,7 @@ mod http {
         r.json().await.map_err(|e| ServerFnError::new(e.to_string()))
     }
     pub async fn get_slow<T: serde::de::DeserializeOwned>(path: &str) -> Result<T, ServerFnError> {
-        let mut h = reqwest::header::HeaderMap::new();
-        if let Ok(v) = reqwest::header::HeaderValue::from_str(&token()) { h.insert("x-operator-token", v); }
-        let c = reqwest::Client::builder().timeout(std::time::Duration::from_secs(90)).default_headers(h).build()
+        let c = reqwest::Client::builder().timeout(std::time::Duration::from_secs(90)).default_headers(auth_headers()).build()
             .map_err(|e| ServerFnError::new(e.to_string()))?;
         let r = c.get(format!("{}{}", base(), path)).send().await
             .map_err(|e| ServerFnError::new(format!("bot API not responding: {e}")))?;
@@ -314,9 +337,7 @@ mod http {
     }
 
     pub async fn send_timeout<B: Serialize, T: serde::de::DeserializeOwned>(method: reqwest::Method, path: &str, body: &B, secs: u64) -> Result<T, ServerFnError> {
-        let mut h = reqwest::header::HeaderMap::new();
-        if let Ok(v) = reqwest::header::HeaderValue::from_str(&token()) { h.insert("x-operator-token", v); }
-        let c = reqwest::Client::builder().timeout(std::time::Duration::from_secs(secs)).default_headers(h).build()
+        let c = reqwest::Client::builder().timeout(std::time::Duration::from_secs(secs)).default_headers(auth_headers()).build()
             .map_err(|e| ServerFnError::new(e.to_string()))?;
         let r = c.request(method, format!("{}{}", base(), path)).json(body).send().await
             .map_err(|e| ServerFnError::new(format!("bot API not responding: {e}")))?;
@@ -325,6 +346,185 @@ mod http {
     pub fn enc(s: &str) -> String { s.replace('%', "%25").replace(' ', "%20").replace('&', "%26").replace('+', "%2B").replace('#', "%23") }
     /// "&tz=<IANA name>" for history requests ("today" / "week" start at the viewer's local midnight); empty = UTC
     pub fn tz_q(tz: &str) -> String { if tz.is_empty() { String::new() } else { format!("&tz={}", enc(tz)) } }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use std::path::PathBuf;
+        use std::sync::{Mutex, MutexGuard};
+
+        /// Serializes process-environment edits. Restores the previous values on drop.
+        static ENV_LOCK: Mutex<()> = Mutex::new(());
+        const ENV_KEYS: [&str; 5] = ["QOS_LOCAL_TOKEN_FILE", "QOS_DATA_DIR", "QOS_HOME", "HOME", "QOS_PUBLIC_TERMINAL"];
+
+        struct EnvGuard {
+            saved: Vec<(&'static str, Option<String>)>,
+            op: String,
+            _lock: MutexGuard<'static, ()>,
+        }
+        impl EnvGuard {
+            fn acquire() -> Self {
+                let lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+                let saved = ENV_KEYS.iter().map(|k| (*k, std::env::var(k).ok())).collect();
+                let op = OP_TOKEN.lock().map(|t| t.clone()).unwrap_or_default();
+                // Desktop token, not the web cookie path, so the operator header is deterministic.
+                unsafe { std::env::remove_var("QOS_PUBLIC_TERMINAL") };
+                Self { saved, op, _lock: lock }
+            }
+            fn set(&self, key: &str, val: &str) {
+                // SAFETY: ENV_LOCK is held, so no other test mutates the process environment.
+                unsafe { std::env::set_var(key, val) }
+            }
+            fn unset(&self, key: &str) {
+                unsafe { std::env::remove_var(key) }
+            }
+        }
+        impl Drop for EnvGuard {
+            fn drop(&mut self) {
+                for (k, v) in &self.saved {
+                    match v {
+                        Some(val) => unsafe { std::env::set_var(k, val) },
+                        None => unsafe { std::env::remove_var(k) },
+                    }
+                }
+                if let Ok(mut t) = OP_TOKEN.lock() { *t = std::mem::take(&mut self.op); }
+            }
+        }
+
+        fn clear_qos(env: &EnvGuard) {
+            env.unset("QOS_LOCAL_TOKEN_FILE");
+            env.unset("QOS_DATA_DIR");
+            env.unset("QOS_HOME");
+        }
+
+        #[test]
+        fn local_token_path_prefers_file_then_data_dir_then_home() {
+            let env = EnvGuard::acquire();
+            env.set("QOS_LOCAL_TOKEN_FILE", "  /tmp/explicit-token  ");
+            env.set("QOS_DATA_DIR", "/var/qos-data");
+            env.set("QOS_HOME", "/srv/qos/home");
+            env.set("HOME", "/home/trader");
+            assert_eq!(local_token_path(), Some(PathBuf::from("/tmp/explicit-token")));
+
+            env.set("QOS_LOCAL_TOKEN_FILE", "   ");
+            assert_eq!(local_token_path(), Some(PathBuf::from("/var/qos-data/local_token")));
+
+            env.unset("QOS_DATA_DIR");
+            assert_eq!(local_token_path(), Some(PathBuf::from("/srv/qos/home/data/local_token")));
+
+            env.set("QOS_HOME", " ");
+            assert_eq!(local_token_path(), Some(PathBuf::from("/home/trader/trading/data/local_token")));
+
+            env.unset("HOME");
+            assert_eq!(local_token_path(), None);
+        }
+
+        fn header_value(h: &reqwest::header::HeaderMap, name: &str) -> Option<String> {
+            h.get(name).and_then(|v| v.to_str().ok()).map(str::to_string)
+        }
+
+        #[test]
+        fn auth_headers_attach_trimmed_local_token_beside_operator_token() {
+            let dir = std::env::temp_dir().join(format!("qos-local-token-{}-attach", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let path = dir.join("local_token");
+            std::fs::write(&path, " \n unit-test-local-token \t\n").unwrap();
+            let env = EnvGuard::acquire();
+            clear_qos(&env);
+            env.set("QOS_LOCAL_TOKEN_FILE", path.to_str().unwrap());
+            if let Ok(mut t) = OP_TOKEN.lock() { *t = "unit-test-operator".into(); }
+
+            let h = auth_headers();
+            assert_eq!(header_value(&h, "x-operator-token").as_deref(), Some("unit-test-operator"));
+            assert_eq!(header_value(&h, "x-qos-local-token").as_deref(), Some("unit-test-local-token"));
+            assert!(h.get("x-qos-local-token").unwrap().is_sensitive());
+            // Debug must not show the file contents (HeaderValue is marked sensitive).
+            let rendered = format!("{h:?}");
+            assert!(!rendered.contains("unit-test-local-token"));
+            drop(env);
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+
+        #[test]
+        fn missing_or_blank_token_file_adds_no_local_header() {
+            let env = EnvGuard::acquire();
+            clear_qos(&env);
+            env.set("QOS_LOCAL_TOKEN_FILE", "/tmp/qos-local-token-does-not-exist");
+            if let Ok(mut t) = OP_TOKEN.lock() { *t = "unit-test-operator".into(); }
+            let missing = auth_headers();
+            assert!(missing.get("x-qos-local-token").is_none());
+            assert_eq!(header_value(&missing, "x-operator-token").as_deref(), Some("unit-test-operator"));
+
+            let dir = std::env::temp_dir().join(format!("qos-local-token-{}-blank", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let path = dir.join("local_token");
+            std::fs::write(&path, " \n\t ").unwrap();
+            env.set("QOS_LOCAL_TOKEN_FILE", path.to_str().unwrap());
+            let blank = auth_headers();
+            assert!(blank.get("x-qos-local-token").is_none());
+            assert_eq!(header_value(&blank, "x-operator-token").as_deref(), Some("unit-test-operator"));
+            drop(env);
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+
+        /// `client()` (used by `send()`) and the slow clients all share `auth_headers()`.
+        /// This checks the bytes that leave the process.
+        #[test]
+        fn client_sends_local_token_header() {
+            let dir = std::env::temp_dir().join(format!("qos-local-token-{}-wire", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let path = dir.join("local_token");
+            std::fs::write(&path, "  wire-local-token\n").unwrap();
+            let env = EnvGuard::acquire();
+            clear_qos(&env);
+            env.set("QOS_LOCAL_TOKEN_FILE", path.to_str().unwrap());
+            if let Ok(mut t) = OP_TOKEN.lock() { *t = "wire-operator".into(); }
+
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let addr = listener.local_addr().unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let server = std::thread::spawn(move || {
+                let mut waited = 0;
+                let (mut sock, _) = loop {
+                    match listener.accept() {
+                        Ok(pair) => break pair,
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            if waited > 40 { return String::new(); }
+                            std::thread::sleep(std::time::Duration::from_millis(50));
+                            waited += 1;
+                        }
+                        Err(e) => panic!("accept: {e}"),
+                    }
+                };
+                sock.set_nonblocking(false).unwrap();
+                sock.set_read_timeout(Some(std::time::Duration::from_secs(2))).ok();
+                let mut buf = Vec::new();
+                let mut tmp = [0u8; 1024];
+                while !buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                    match std::io::Read::read(&mut sock, &mut tmp) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => buf.extend_from_slice(&tmp[..n]),
+                    }
+                }
+                let _ = std::io::Write::write_all(
+                    &mut sock,
+                    b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}",
+                );
+                String::from_utf8_lossy(&buf).into_owned()
+            });
+
+            let url = format!("http://{addr}/ping");
+            let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("tokio runtime");
+            let sent = rt.block_on(async { client().unwrap().get(url).send().await });
+            let raw = server.join().expect("server thread");
+            assert!(sent.is_ok(), "request did not complete");
+            let lower = raw.to_ascii_lowercase();
+            assert!(lower.contains("\r\nx-qos-local-token: wire-local-token\r\n"), "local token header was not sent");
+            assert!(lower.contains("\r\nx-operator-token: wire-operator\r\n"), "operator token header was not sent");
+            drop(env);
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
 }
 
 /// WebSocket address of the bot API (derived from BOT_API, so the realtime stream follows the configured host/port)
