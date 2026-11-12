@@ -21,6 +21,8 @@ jobs:
           key: server
       - name: cargo check (fullstack server functions)
         run: cargo check --locked --no-default-features --features server
+      - name: cargo test (fullstack server functions)
+        run: cargo test --locked --no-default-features --features server
 
   # Check the desktop app — needs WebKitGTK: .deb files are kept in the GitHub cache (later runs skip the Ubuntu mirror download)
   desktop:

@@ -32,6 +32,20 @@ dx serve --platform desktop               # or a desktop window, for development
 The Terminal connects to the engine at `http://127.0.0.1:8000` by default (for a remote engine,
 through an SSH tunnel). Set `BOT_API` to use another address.
 
+On a personal machine with no operator, the Terminal sends the engine's local admin token
+(`X-QOS-Local-Token`). It reads `QOS_LOCAL_TOKEN_FILE`, otherwise `QOS_DATA_DIR/local_token`,
+`QOS_HOME/data/local_token`, or `~/trading/data/local_token`. The engine creates that file
+(mode 0600) at install and on first start. For an engine on another computer, copy the file
+and set `QOS_LOCAL_TOKEN_FILE` to the copy.
+
+The web server listens on `127.0.0.1` and `PORT` (8080 if unset). A non-loopback `IP` is ignored;
+set `QOS_TERMINAL_BIND` to listen on another address. The `Host` must be a loopback name, or a host
+listed in `QOS_TRUSTED_ORIGINS` or `QOS_TERMINAL_HOST`. For the HTTPS terminal, put the site origin
+in `QOS_TRUSTED_ORIGINS` (the service reads `/srv/qos/terminal.env`). `POST`, `PUT`, `PATCH`, and
+`DELETE` must include the `qos_csrf` cookie set by the page and come from that same origin
+(`http` on loopback, `https` on a configured public host). The desktop app sends no `Origin`;
+a loopback request with the cookie and no `Origin`, `Referer`, or `Sec-Fetch-Site` is accepted.
+
 ## Layout
 
 | Path | What it is |
@@ -39,6 +53,7 @@ through an SSH tunnel). Set `BOT_API` to use another address.
 | `src/app.rs` | App shell, routing and top bar |
 | `src/ui.rs` | Screens and components |
 | `src/api.rs` | Server functions that call the QOS engine API |
+| `src/guard.rs` | Loopback bind and checks on inbound requests |
 | `assets/` | Styles, chart code and icons |
 | `demo/` | Browser build of the Terminal on simulated data (the live demo) — see `demo/README.md` |
 
