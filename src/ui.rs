@@ -3710,7 +3710,7 @@ fn AssistantSettings() -> Element {
             span { class: "muted small", "{a.orders_last_hour} orders in the last hour" }
             if !a.operator_exists { span { class: "tag peach xs", "create an operator with role 'assistant' below and put its PIN in bot/.env" } }
         }
-        p { class: "muted xs", "Every assistant order is two-step (prepare → confirm) and logged with source and request id. With Ask first you approve each order in the top bar (AI). Optional and experimental: AI can make mistakes; you are responsible for every order it places." }
+        p { class: "muted xs", "Every assistant order is two-step (prepare → confirm) and logged with source and request id. With Ask first you approve each order in the top bar (AI). Optional and experimental. AI can make mistakes; you are responsible for every order it places. Account data you share goes to your chosen AI provider. Keep your token secret. Software, not financial advice." }
         if !msg.read().is_empty() { div { class: "notice", "{msg}" } }
     }
 }
@@ -4391,7 +4391,7 @@ fn AssistantChip() -> Element {
                         }
                     }
                     div { class: "ctx-sep" }
-                    div { class: "muted xs asst-note", "Optional and experimental. AI can make mistakes; you are responsible for every order it places. Limits: Risk → AI assistant." }
+                    div { class: "muted xs asst-note", "Optional and experimental. AI can make mistakes; you are responsible for every order it places. Account data you share goes to your chosen AI provider. Keep your token secret. Software, not financial advice. Limits: Risk → AI assistant." }
                     if !admin { div { class: "muted xs asst-note", "Only an admin can change this." } }
                 }
             }
