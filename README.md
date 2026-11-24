@@ -19,6 +19,11 @@ installer downloads and sets it up for you — see
 [Running QOS on your own server](https://github.com/qos-one/qos/blob/main/docs/SELF_HOSTING.md).
 Then open `https://terminal.<your-domain>` in any browser and sign in with your operator PIN.
 
+New to QOS? Start with the engine: [install it](https://github.com/qos-one/qos#install-on-a-server-recommended)
+and run your [first backtest](https://github.com/qos-one/qos#after-your-first-backtest), then open the Terminal.
+Setup problems or questions: [open a setup report](https://github.com/qos-one/qos/issues/new) in the engine
+repo. Never paste `local_token`, your PIN or an API key into an issue.
+
 ## Build from source
 
 Requirements: Rust (stable) and the Dioxus CLI 0.7.
