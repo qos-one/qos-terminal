@@ -3522,7 +3522,7 @@ pub fn RiskPanel() -> Element {
                         tbody {
                             for e in r.exposure.clone() {
                                 {
-                                    let share_txt = if e.usd && a.gross_exposure > 0.0 { format!("{:.1}%", e.market_value.abs() / a.gross_exposure * 100.0) } else { "—".to_string() };
+                                    let share_txt = crate::calc::share_of_gross(e.market_value, e.usd, a.gross_exposure);
                                     rsx! {
                                         tr {
                                             td { class: "sym", "{e.symbol}" }
@@ -4079,6 +4079,21 @@ pub fn NotifySettings() -> Element {
 // ---------------- login / account setup (Interactive Brokers only) ----------------
 #[component]
 pub fn LoginScreen() -> Element {
+    // Public web demo: never show broker credential fields. Visitors could type a real IBKR
+    // password into a public website, and the "written only to this computer" copy below would be
+    // false there. Only the `demo` feature takes this branch; desktop/self-hosted builds unchanged.
+    if cfg!(feature = "demo") {
+        return rsx! {
+            div { class: "login-screen",
+                div { class: "notice",
+                    "This is the public demo: simulated market data, no real orders, no broker sign-in. "
+                    "Never enter an Interactive Brokers username or password here. "
+                    "To connect your own IBKR paper account, install QOS on your computer: "
+                    a { href: "https://github.com/qos-one/qos", target: "_blank", rel: "noopener", "github.com/qos-one/qos" }
+                }
+            }
+        };
+    }
     let mut st = app_state();
     let status = st.session.read().clone().unwrap_or_default();
     let op = st.op.read().clone();
@@ -4442,9 +4457,12 @@ pub fn AccountMenu() -> Element {
                             }, span { class: "num", "{id2}" } span { class: "muted small", " {money(a.net_liquidation)}" } } }
                         }
                     }
-                    div { class: "ctx-sep" }
-                    button { class: "ctx-item", onclick: move |_| { open.set(false); spawn(async move { let _ = setup_logout(false).await; if let Ok(s) = get_setup_status().await { st.session.set(Some(s)); } }); }, "Switch user (keep gateway running)" }
-                    button { class: "ctx-item danger", onclick: move |_| { open.set(false); spawn(async move { let _ = setup_logout(true).await; if let Ok(s) = get_setup_status().await { st.session.set(Some(s)); } }); }, "Sign out & stop IB Gateway" }
+                    // the public web demo has no broker session to switch or stop
+                    if !cfg!(feature = "demo") {
+                        div { class: "ctx-sep" }
+                        button { class: "ctx-item", onclick: move |_| { open.set(false); spawn(async move { let _ = setup_logout(false).await; if let Ok(s) = get_setup_status().await { st.session.set(Some(s)); } }); }, "Switch user (keep gateway running)" }
+                        button { class: "ctx-item danger", onclick: move |_| { open.set(false); spawn(async move { let _ = setup_logout(true).await; if let Ok(s) = get_setup_status().await { st.session.set(Some(s)); } }); }, "Sign out & stop IB Gateway" }
+                    }
                 }
             }
         }
@@ -6360,6 +6378,7 @@ fn PackagesView(mode: Signal<&'static str>) -> Element {
                 }
                 if !err.read().is_empty() { p { class: "empty small", "{err}" } }
                 if !queue.is_empty() { div { class: "muted small pkg-queue", "Evaluation queue: {queue.join(\", \")}" } }
+                if cfg!(feature = "demo") { div { class: "muted small pkg-queue", title: "BT = backtest P&L and max drawdown; WF = walk-forward positive folds / folds and P&L", "Backtest (BT) and walk-forward (WF) results here use simulated demo data. Not a forecast." } }
                 for p in packages.iter().cloned() {
                     {
                         let r = js(&p, &["ref"]);

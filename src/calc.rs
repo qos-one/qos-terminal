@@ -92,6 +92,14 @@ pub fn pct_of(v: f64, base: f64) -> String {
     format!(" ({:+.2}%)", v / base * 100.0)
 }
 
+/// Share of gross exposure for one Risk > Exposure row. A row can never be more than 100% of gross;
+/// above that its value is not in USD (e.g. JPY left unconverted), so show "—" instead of a wrong number.
+pub fn share_of_gross(market_value: f64, usd: bool, gross: f64) -> String {
+    if !usd || !ok_pos(gross) || !market_value.is_finite() { return "—".into(); }
+    let x = market_value.abs() / gross * 100.0;
+    if x <= 100.05 { format!("{:.1}%", x) } else { "—".into() }
+}
+
 /// Display decimals for an instrument key, same rule as server.py decimals_for (used when no quote is loaded).
 pub fn decimals_for_key(key: &str) -> usize {
     let (mkt, sym) = key.split_once(':').unwrap_or(("FX", key));
@@ -333,6 +341,15 @@ pub fn parse_ui_zoom(s: &str) -> Option<f64> {
 mod tests {
     use super::*;
 
+    #[test] fn share_of_gross_never_shows_more_than_100_percent() {
+        assert_eq!(share_of_gross(20_000.0, true, 67_828.31), "29.5%");
+        assert_eq!(share_of_gross(-20_000.0, true, 67_828.31), "29.5%");
+        assert_eq!(share_of_gross(67_828.31, true, 67_828.31), "100.0%");
+        assert_eq!(share_of_gross(3_197_273.51, true, 67_828.31), "—");      // JPY value sent as if it were USD
+        assert_eq!(share_of_gross(20_000.0, false, 67_828.31), "—");         // not a USD value
+        assert_eq!(share_of_gross(20_000.0, true, 0.0), "—");
+        assert_eq!(share_of_gross(f64::NAN, true, 67_828.31), "—");
+    }
     #[test] fn money_rounds_cents_into_units() {
         assert_eq!(money(2.999), "3.00");
         assert_eq!(money(-149.996), "-150.00");
