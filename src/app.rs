@@ -291,13 +291,16 @@ pub fn App() -> Element {
 #[component]
 fn DemoBadge() -> Element {
     let site = option_env!("QOS_SITE_URL").unwrap_or("http://localhost:8090");
+    // Main repo (where stars, README and Issues live), not the org page.
+    // Both hrefs go through the same dynamic-attribute path so neither link can pick up the other's value.
+    let repo = "https://github.com/qos-one/qos";
     rsx! {
         div { class: "demo-badge",
             span { class: "demo-dot" }
             span { b { "Live demo" } " · simulated market data · no real orders" }
             button { class: "demo-fs", title: "Full screen (Esc to exit)", onclick: move |_| { let _ = document::eval(crate::ui::WEB_FULLSCREEN_JS); }, "⤢ Full screen" }
-            a { class: "demo-dl", href: "{site}/download", target: "_blank", "Install QOS" }
-            a { class: "demo-gh", href: "https://github.com/qos-one", target: "_blank", rel: "noopener", "GitHub" }
+            a { class: "demo-dl", href: "{site}/download", target: "_blank", rel: "noopener", "Install QOS" }
+            a { class: "demo-gh", href: "{repo}", target: "_blank", rel: "noopener", "GitHub" }
         }
     }
 }
