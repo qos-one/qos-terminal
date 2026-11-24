@@ -21,7 +21,7 @@ Then open `https://terminal.<your-domain>` in any browser and sign in with your 
 
 New to QOS? Start with the engine: [install it](https://github.com/qos-one/qos#install-on-a-server-recommended)
 and run your [first backtest](https://github.com/qos-one/qos#after-your-first-backtest), then open the Terminal.
-Setup problems or questions: [open a setup report](https://github.com/qos-one/qos/issues/new) in the engine
+Setup problems or questions: [open a setup report](https://github.com/qos-one/qos/issues/new?template=1_setup_report.yml) in the engine
 repo. Never paste `local_token`, your PIN or an API key into an issue.
 
 ## Build from source
